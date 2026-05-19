@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="auto">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Assistant Lambersart</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&display=swap" rel="stylesheet">
+<style>
+/* ── Tokens ── */
+:root{
+  --surface:#fff;--surface-2:#f2f5f9;--border:#c8d2e0;--divider:#e2e8f0;
+  --text:#1a2233;--muted:#56647a;--faint:#9aa3b5;
+  --primary:#1a4e8a;--primary-h:#13396a;--primary-hl:#dde9f8;
+  --accent:#d4a017;--success:#2e7d32;--error:#c0392b;
+  --shadow:0 8px 32px rgba(26,46,80,.16);
+  --r:16px;--r-sm:10px;--r-full:9999px;
+  --font:Inter,system-ui,sans-serif;
+}
+@media(prefers-color-scheme:dark){:root[data-theme="auto"]{
+  --surface:#181d2e;--surface-2:#1e2438;--border:#303a50;--divider:#2a3348;
+  --text:#d4dae8;--muted:#7a8299;--faint:#4a5268;
+  --primary:#5a9be8;--primary-h:#4a88d0;--primary-hl:#1f2f49;--accent:#e8be50;
+  --shadow:0 8px 32px rgba(0,0,0,.4);
+}}
+[data-theme="dark"]{
+  --surface:#181d2e;--surface-2:#1e2438;--border:#303a50;--divider:#2a3348;
+  --text:#d4dae8;--muted:#7a8299;--faint:#4a5268;
+  --primary:#5a9be8;--primary-h:#4a88d0;--primary-hl:#1f2f49;--accent:#e8be50;
+  --shadow:0 8px 32px rgba(0,0,0,.4);
+}
+[data-theme="light"]{
+  --surface:#fff;--surface-2:#f2f5f9;--border:#c8d2e0;--divider:#e2e8f0;
+  --text:#1a2233;--muted:#56647a;--faint:#9aa3b5;
+  --primary:#1a4e8a;--primary-h:#13396a;--primary-hl:#dde9f8;--accent:#d4a017;
+  --shadow:0 8px 32px rgba(26,46,80,.16);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{font-family:var(--font);background:transparent}
+button,textarea,a{font:inherit}
+:focus-visible{outline:2px solid var(--primary);outline-offset:3px;border-radius:4px}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* ── Bouton flottant ── */
+#launcher{
+  position:fixed;right:24px;bottom:24px;z-index:9998;
+  width:60px;height:60px;border:none;border-radius:50%;cursor:pointer;
+  background:linear-gradient(135deg,var(--primary) 0%,#0f2e55 100%);
+  color:#fff;box-shadow:0 6px 22px rgba(26,46,80,.35);
+  display:flex;align-items:center;justify-content:center;
+  transition:transform .15s,box-shadow .15s;
+}
+#launcher:hover{transform:translateY(-2px);box-shadow:0 10px 28px rgba(26,46,80,.4)}
+#launcher .lbadge{
+  position:absolute;top:-4px;right:-4px;width:20px;height:20px;
+  border-radius:50%;background:var(--accent);color:#1a2233;font-size:10px;font-weight:800;
+  border:2px solid #fff;display:flex;align-items:center;justify-content:center;
+}
+#launcher .ldot{position:absolute;bottom:5px;right:5px;width:9px;height:9px;border-radius:50%;background:#3ecf6a;border:2px solid #fff}
+
+/* ── Panneau ── */
+#panel{
+  position:fixed;right:24px;bottom:96px;
+  width:min(430px,calc(100vw - 20px));
+  height:min(680px,calc(100dvh - 110px));
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--r);box-shadow:var(--shadow);
+  z-index:9997;overflow:hidden;display:none;flex-direction:column;
+}
+#panel.open{display:flex;animation:rise .2s cubic-bezier(.16,1,.3,1)}
+@keyframes rise{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}
+
+/* Header */
+.ph{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:13px 16px;flex-shrink:0;
+  background:linear-gradient(135deg,var(--primary) 0%,#0f2e55 100%);color:#fff;
+}
+.pb{display:flex;gap:10px;align-items:center}
+.pbi{width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.pbn{font-size:14px;font-weight:700;line-height:1.2}
+.pbs{font-size:11px;opacity:.82}
+.pacts{display:flex;gap:4px}
+.pact{width:30px;height:30px;border:none;border-radius:8px;background:transparent;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:.8}
+.pact:hover{background:rgba(255,255,255,.15);opacity:1}
+
+/* Messages */
+#messages{flex:1;overflow-y:auto;padding:14px 14px 8px;display:flex;flex-direction:column;gap:12px;background:var(--surface)}
+#messages::-webkit-scrollbar{width:3px}
+#messages::-webkit-scrollbar-thumb{background:var(--border);border-radius:99px}
+.msg{display:flex;gap:8px;max-width:90%}
+.msg.user{align-self:flex-end;flex-direction:row-reverse}
+.av{width:28px;height:28px;border-radius:50%;flex-shrink:0;background:var(--primary);color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center}
+.msg.user .av{background:var(--accent);color:#1a2233}
+.mc{display:flex;flex-direction:column;gap:3px}
+.bub{padding:10px 12px;border-radius:13px;font-size:13.5px;line-height:1.55;word-break:break-word}
+.msg.bot .bub{background:var(--surface-2);color:var(--text);border:1px solid var(--divider);border-bottom-left-radius:4px}
+.msg.user .bub{background:var(--primary);color:#fff;border-bottom-right-radius:4px}
+.ts{font-size:10px;color:var(--faint);padding:0 2px}
+.msg.user .ts{text-align:right}
+
+/* Source pills */
+.sources{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.src-pill{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:4px 10px;border-radius:var(--r-full);border:1px solid var(--border);
+  font-size:11px;color:var(--muted);text-decoration:none;background:var(--surface);
+  transition:border-color .12s,color .12s;
+}
+.src-pill:hover{border-color:var(--primary);color:var(--primary)}
+.src-pill svg{flex-shrink:0}
+
+/* Chips */
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.chip{border:none;border-radius:var(--r-full);padding:6px 12px;font-size:12px;background:var(--primary-hl);color:var(--primary);cursor:pointer;transition:background .12s,color .12s}
+.chip:hover{background:var(--primary);color:#fff}
+
+/* Typing */
+.typing-wrap{display:flex;gap:5px;padding:6px 0;align-items:center}
+.td{width:7px;height:7px;border-radius:50%;background:var(--muted);animation:bo 1.1s infinite}
+.td:nth-child(2){animation-delay:.15s}.td:nth-child(3){animation-delay:.3s}
+@keyframes bo{0%,60%,100%{transform:none}30%{transform:translateY(-5px)}}
+
+/* Erreur */
+.err{color:var(--error);font-style:italic;font-size:13px}
+
+/* Input zone */
+.input-zone{border-top:1px solid var(--divider);padding:10px 12px;background:var(--surface);flex-shrink:0}
+.irow{display:flex;gap:8px;align-items:flex-end}
+.iwrap{
+  flex:1;display:flex;align-items:center;gap:6px;
+  background:var(--surface-2);border:1.5px solid var(--border);border-radius:12px;padding:9px 11px;
+  transition:border-color .12s,box-shadow .12s;
+}
+.iwrap:focus-within{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-hl)}
+textarea{width:100%;resize:none;max-height:88px;border:none;outline:none;background:transparent;color:var(--text);font-size:13.5px;line-height:1.45}
+textarea::placeholder{color:var(--faint)}
+.cc{font-size:11px;color:var(--faint);white-space:nowrap;user-select:none}
+.sbtn{width:42px;height:42px;border:none;border-radius:11px;background:var(--primary);color:#fff;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.sbtn:hover{background:var(--primary-h)}.sbtn:disabled{opacity:.4;cursor:not-allowed}
+
+/* Footer du panel */
+.pfooter{padding:7px 12px;border-top:1px dashed var(--divider);font-size:11px;color:var(--faint);background:var(--surface);text-align:center;flex-shrink:0}
+.pfooter a{color:var(--muted)}
+
+@media(max-width:580px){
+  #panel{right:10px;left:10px;bottom:82px;width:auto;height:min(76dvh,620px)}
+  #launcher{right:12px;bottom:12px;width:56px;height:56px}
+}
+</style>
+</head>
+<body>
+
+<button id="launcher" aria-label="Ouvrir l'assistant Lambersart" aria-expanded="false" aria-controls="panel">
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" aria-hidden="true">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+    <circle cx="9" cy="10" r=".6" fill="currentColor"/><circle cx="12" cy="10" r=".6" fill="currentColor"/><circle cx="15" cy="10" r=".6" fill="currentColor"/>
+  </svg>
+  <span class="lbadge" aria-hidden="true">IA</span>
+  <span class="ldot" aria-hidden="true"></span>
+</button>
+
+<section id="panel" role="dialog" aria-modal="false" aria-label="Assistant Lambersart">
+  <header class="ph">
+    <div class="pb">
+      <div class="pbi" aria-hidden="true">🏛️</div>
+      <div>
+        <div class="pbn">Assistant Lambersart</div>
+        <div class="pbs">Recherche intelligente sur lambersart.fr</div>
+      </div>
+    </div>
+    <div class="pacts">
+      <button class="pact" id="themeBtn" aria-label="Changer le thème">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+      <button class="pact" id="clearBtn" aria-label="Effacer la conversation">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div id="messages" role="log" aria-live="polite" aria-label="Conversation"></div>
+
+  <div class="input-zone">
+    <div class="irow">
+      <div class="iwrap">
+        <textarea id="inp" rows="1" placeholder="Posez votre question sur Lambersart…" maxlength="400" aria-label="Votre message"></textarea>
+        <span class="cc" id="cc" aria-hidden="true">400</span>
+      </div>
+      <button class="sbtn" id="sbtn" aria-label="Envoyer">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="pfooter">Alimenté par <a href="https://mistral.ai" target="_blank" rel="noopener">Mistral AI</a> · <a href="https://lambersart.fr" target="_blank" rel="noopener">lambersart.fr</a></div>
+</section>
+
+<script>
+// ── CONFIG ────────────────────────────────────────────────────────────────────
+const API = "https://assistant.lambersart.fr/chat"; // ← votre URL de production
+const SID = "s_" + Math.random().toString(36).slice(2,10);
+
+const CHIPS = [
+  {l:"📅 Agenda",   q:"Quels sont les prochains événements à Lambersart ?"},
+  {l:"🏛️ Mairie",  q:"Quels sont les horaires et le contact de la mairie ?"},
+  {l:"🍽️ Cantine", q:"Où trouver les menus de la restauration scolaire ?"},
+  {l:"🤝 CCAS",    q:"Quels services propose le CCAS pour les seniors ?"},
+  {l:"♻️ Déchets", q:"Comment fonctionne la collecte des déchets à Lambersart ?"},
+  {l:"🏗️ Urbanisme",q:"Comment déposer un permis de construire ?"},
+];
+
+// ── DOM refs ──────────────────────────────────────────────────────────────────
+const launcher = document.getElementById("launcher");
+const panel    = document.getElementById("panel");
+const msgs     = document.getElementById("messages");
+const inp      = document.getElementById("inp");
+const sbtn     = document.getElementById("sbtn");
+const cc       = document.getElementById("cc");
+
+let busy = false;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const now = () => new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+const esc = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const scroll = () => { msgs.scrollTop = msgs.scrollHeight; };
+
+function fmt(text){
+  // Markdown basique + mise en forme URLs
+  return text
+    .replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g,"<em>$1</em>")
+    .replace(/`(.+?)`/g,"<code style='background:var(--surface-2);padding:1px 5px;border-radius:4px;font-size:12px'>$1</code>")
+    .replace(/\[(https?:\/\/lambersart\.fr[^\]]*)\]/g,"")   // citer proprement plus bas
+    .replace(/\n{2,}/g,"<br><br>")
+    .replace(/\n/g,"<br>");
+}
+
+function srcPillsHtml(sources){
+  if(!sources || !sources.length) return "";
+  const pills = sources.map(s=>{
+    const label = s.title
+      ? s.title.replace(/ \| Ville de Lambersart.*$/,"").replace(/Page d'accueil.*/,"Accueil").slice(0,40)
+      : "Voir la page";
+    return `<a class="src-pill" href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+      ${esc(label)}</a>`;
+  }).join("");
+  return `<div class="sources" role="list" aria-label="Sources">${pills}</div>`;
+}
+
+function chipsHtml(){
+  return `<div class="chips" role="list">${CHIPS.map(c=>`<button class="chip" data-q="${esc(c.q)}">${c.l}</button>`).join("")}</div>`;
+}
+
+// ── Bulles ────────────────────────────────────────────────────────────────────
+function addMsg(role, html, extraHtml=""){
+  const d = document.createElement("div");
+  d.className = "msg " + role;
+  d.innerHTML = `
+    <div class="av" aria-hidden="true">${role==="bot"?"🏛️":"👤"}</div>
+    <div class="mc">
+      <div class="bub">${html}${extraHtml}</div>
+      <div class="ts">${now()}</div>
+    </div>`;
+  msgs.appendChild(d); scroll(); return d;
+}
+
+function addTyping(){
+  const d = document.createElement("div");
+  d.className = "msg bot"; d.id = "typ";
+  d.innerHTML = `<div class="av" aria-hidden="true">🏛️</div><div class="mc"><div class="bub"><div class="typing-wrap"><div class="td"></div><div class="td"></div><div class="td"></div></div></div></div>`;
+  msgs.appendChild(d); scroll();
+}
+const remTyping = () => document.getElementById("typ")?.remove();
+
+// ── Bienvenue ─────────────────────────────────────────────────────────────────
+function welcome(){
+  msgs.innerHTML = "";
+  addMsg("bot",
+    `<strong>Bonjour ! Je suis l'assistant numérique de Lambersart.</strong><br><br>
+    Je recherche dans le contenu du site officiel pour répondre à vos questions sur les services, les démarches, les événements et la vie de la ville.<br><br>
+    Choisissez un thème ou posez directement votre question :`,
+    chipsHtml()
+  );
+}
+
+// ── Appel API ─────────────────────────────────────────────────────────────────
+async function ask(q){
+  if(!q.trim() || busy) return;
+  busy = true; sbtn.disabled = true;
+  addMsg("user", esc(q));
+  addTyping();
+
+  try {
+    const res = await fetch(API, {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({session_id:SID, message:q})
+    });
+    if(!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    remTyping();
+    if(data.error){
+      addMsg("bot", `<span class="err">⚠️ ${esc(data.error)}</span>`);
+    } else {
+      addMsg("bot", fmt(data.answer), srcPillsHtml(data.sources));
+    }
+  } catch(e){
+    remTyping();
+    addMsg("bot",`<span class="err">⚠️ Connexion impossible au serveur. Réessayez ou appelez la mairie au <strong>03 20 08 44 44</strong>.</span>`);
+  }
+
+  busy = false; sbtn.disabled = false; inp.focus();
+}
+
+// ── Resize textarea ───────────────────────────────────────────────────────────
+function resize(){ inp.style.height="auto"; inp.style.height=Math.min(inp.scrollHeight,88)+"px"; }
+
+// ── Thème ─────────────────────────────────────────────────────────────────────
+const themes = ["auto","light","dark"];
+let ti = 0;
+document.getElementById("themeBtn").addEventListener("click",()=>{
+  ti = (ti+1)%themes.length;
+  document.documentElement.setAttribute("data-theme", themes[ti]);
+});
+
+// ── Events ────────────────────────────────────────────────────────────────────
+launcher.addEventListener("click",()=>{
+  const open = panel.classList.toggle("open");
+  launcher.setAttribute("aria-expanded", open);
+  if(open) inp.focus();
+});
+
+sbtn.addEventListener("click",()=>{ const q=inp.value.trim(); inp.value=""; resize(); cc.textContent=400; ask(q); });
+
+inp.addEventListener("keydown",e=>{
+  if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); const q=inp.value.trim(); inp.value=""; resize(); cc.textContent=400; ask(q); }
+});
+
+inp.addEventListener("input",()=>{ resize(); cc.textContent=400-inp.value.length; });
+
+document.addEventListener("click",e=>{
+  const chip=e.target.closest(".chip");
+  if(chip) ask(chip.dataset.q);
+});
+
+document.getElementById("clearBtn").addEventListener("click", welcome);
+
+// ── Fermer en cliquant hors du panel ─────────────────────────────────────────
+document.addEventListener("click",e=>{
+  if(panel.classList.contains("open") && !panel.contains(e.target) && e.target!==launcher && !launcher.contains(e.target)){
+    panel.classList.remove("open");
+    launcher.setAttribute("aria-expanded","false");
+  }
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+welcome();
+</script>
+</body>
+</html>
