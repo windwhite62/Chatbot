@@ -1,48 +1,46 @@
 #!/usr/bin/env python3
 """
 Chatbot Lambersart — Backend Flask Production
-Architecture : RAG léger (crawl + TF-IDF + Mistral AI)
+Compatible mistralai < 1.0 (ancienne version)
 """
 
 import os, re, json, time, logging
 from pathlib import Path
 from dotenv import load_dotenv
-
-load_dotenv()  # Charge .env si présent
+load_dotenv()
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from mistralai import Mistral
+
+# ── Import mistralai v0.x ─────────────────────────────────────────────────────
+from mistralai.client import MistralClient
+from mistralai.models.chat_completion import ChatMessage
+
 import requests
 from bs4 import BeautifulSoup
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 
-# ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# ── CORS ──────────────────────────────────────────────────────────────────────
 ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "http://localhost").split(",")
 CORS(app, origins=[o.strip() for o in ALLOWED_ORIGINS])
 
-# ── Rate limiting ─────────────────────────────────────────────────────────────
 limiter = Limiter(get_remote_address, app=app, default_limits=["60/hour", "15/minute"])
 
-# ── Config ────────────────────────────────────────────────────────────────────
-MISTRAL_API_KEY = os.environ["MISTRAL_API_KEY"]
+MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "VOTRE_CLE_API_ICI")
 MODEL           = os.environ.get("MISTRAL_MODEL", "mistral-small-latest")
 ADMIN_TOKEN     = os.environ.get("ADMIN_TOKEN", "changeme")
 MAX_HISTORY     = 10
 INDEX_FILE      = Path("lambersart_index.json")
-INDEX_TTL       = 3600 * 12   # re-crawl toutes les 12h
+INDEX_TTL       = 3600 * 12
 
-# ── Pages à indexer ───────────────────────────────────────────────────────────
 PAGES_TO_INDEX = [
     "https://lambersart.fr/",
     "https://lambersart.fr/agenda",
@@ -80,20 +78,18 @@ CONTEXTE EXTRAIT DU SITE :
 """
 
 # ── Index TF-IDF ──────────────────────────────────────────────────────────────
-_index: dict = {}
-_vectorizer = None
+_index       = {}
+_vectorizer  = None
 _tfidf_matrix = None
-_index_urls: list = []
+OFF_TOPIC    = re.compile(r"\b(bitcoin|crypto|pornograph|terroris|hacker|sql\s*inject|<script)\b", re.I)
 
-OFF_TOPIC = re.compile(r"\b(bitcoin|crypto|pornograph|terroris|hacker|sql\s*inject|<script)\b", re.I)
-
-def fetch_page(url: str) -> dict:
+def fetch_page(url):
     try:
         r = requests.get(url, timeout=10, headers={"User-Agent": "LambersartAssistant/2.0"})
         r.raise_for_status()
         soup = BeautifulSoup(r.text, "html.parser")
         title = soup.title.get_text(strip=True) if soup.title else url
-        for tag in soup(["script", "style", "nav", "footer", "header", "form", "noscript"]):
+        for tag in soup(["script","style","nav","footer","header","form","noscript"]):
             tag.decompose()
         text = soup.get_text(separator="\n", strip=True)
         text = re.sub(r"\n{3,}", "\n\n", text)
@@ -103,16 +99,15 @@ def fetch_page(url: str) -> dict:
         return {"url": url, "title": url, "text": ""}
 
 def _fit_tfidf():
-    global _vectorizer, _tfidf_matrix, _index_urls
+    global _vectorizer, _tfidf_matrix
     docs = list(_index.values())
     if not docs:
         return
-    _index_urls = [d["url"] for d in docs]
-    _vectorizer = TfidfVectorizer(analyzer="word", ngram_range=(1, 2), min_df=1,
+    _vectorizer = TfidfVectorizer(analyzer="word", ngram_range=(1,2), min_df=1,
                                    token_pattern=r"[a-zA-ZÀ-ÿ]{2,}")
     _tfidf_matrix = _vectorizer.fit_transform([d["text"] for d in docs])
 
-def build_index(force: bool = False):
+def build_index(force=False):
     global _index
     if not force and INDEX_FILE.exists():
         age = time.time() - INDEX_FILE.stat().st_mtime
@@ -135,11 +130,11 @@ def build_index(force: bool = False):
     _fit_tfidf()
     log.info("Index TF-IDF prêt.")
 
-def retrieve_context(query: str, top_k: int = 3) -> str:
+def retrieve_context(query, top_k=3):
     if _vectorizer is None:
         return "[Index non disponible]"
     q_vec = _vectorizer.transform([query])
-    sims = cosine_similarity(q_vec, _tfidf_matrix).flatten()
+    sims  = cosine_similarity(q_vec, _tfidf_matrix).flatten()
     top_idx = np.argsort(sims)[::-1][:top_k]
     chunks = []
     for i in top_idx:
@@ -150,15 +145,16 @@ def retrieve_context(query: str, top_k: int = 3) -> str:
     return "\n\n---\n\n".join(chunks) if chunks else list(_index.values())[0].get("text","")[:800]
 
 # ── Sessions ──────────────────────────────────────────────────────────────────
-sessions: dict[str, list] = {}
+sessions = {}
 
-# ── Routes ───────────────────────────────────────────────────────────────────
+# ── Routes ────────────────────────────────────────────────────────────────────
 @app.route("/chat", methods=["POST"])
 @limiter.limit("20/minute")
 def chat():
     data = request.get_json(force=True)
     sid  = data.get("session_id", "default")
     msg  = data.get("message", "").strip()[:400]
+
     if not msg:
         return jsonify({"error": "Message vide"}), 400
     if OFF_TOPIC.search(msg):
@@ -172,17 +168,25 @@ def chat():
     trimmed = history[-MAX_HISTORY:]
 
     try:
-        client   = Mistral(api_key=MISTRAL_API_KEY)
-        response = client.chat.complete(
+        # ── Appel API mistralai v0.x ──────────────────────────────────────────
+        client = MistralClient(api_key=MISTRAL_API_KEY)
+
+        messages = [ChatMessage(role="system", content=system)] + \
+                   [ChatMessage(role=m["role"], content=m["content"]) for m in trimmed]
+
+        response = client.chat(
             model=MODEL,
-            messages=[{"role": "system", "content": system}] + trimmed,
-            temperature=0.2, max_tokens=600,
+            messages=messages,
+            temperature=0.2,
+            max_tokens=600,
         )
         answer = response.choices[0].message.content
         history.append({"role": "assistant", "content": answer})
+
         urls    = re.findall(r"https?://lambersart\.fr[^\s\]\)\"']*", answer)
         sources = [{"url": u, "title": _index.get(u, {}).get("title", u)} for u in dict.fromkeys(urls)]
         return jsonify({"answer": answer, "sources": sources})
+
     except Exception as e:
         log.error(f"Mistral error: {e}")
         return jsonify({"error": "Service temporairement indisponible. Appelez le 03 20 08 44 44."}), 500
