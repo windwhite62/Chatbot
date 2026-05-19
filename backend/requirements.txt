@@ -2,7 +2,7 @@ flask>=2.3
 flask-cors>=4.0
 flask-limiter>=3.0
 python-dotenv>=1.0
-mistralai          # fonctionne avec v0.x ET v1+
+mistralai
 requests>=2.31
 beautifulsoup4>=4.12
 scikit-learn>=1.4
