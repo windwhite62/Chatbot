@@ -2,15 +2,14 @@ services:
   - type: web
     name: lambersart-chatbot
     env: python
-    rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 60
     envVars:
       - key: MISTRAL_API_KEY
-        sync: false          # à renseigner manuellement dans le dashboard Render
+        sync: false
       - key: ADMIN_TOKEN
         sync: false
       - key: ALLOWED_ORIGINS
-        value: https://lambersart.fr
+        value: "*"
       - key: MISTRAL_MODEL
         value: mistral-small-latest
