@@ -29,22 +29,7 @@ MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
 MODEL           = os.environ.get("MISTRAL_MODEL", "mistral-small-latest")
 ADMIN_TOKEN     = os.environ.get("ADMIN_TOKEN", "changeme")
 INDEX_FILE      = Path("lambersart_index.json")
-
-# ── Base de connaissance statique (knowledge.json) ────────────────────────────
-KNOWLEDGE_FILE = Path("knowledge.json")
-
-def load_knowledge_index():
-    """Charge knowledge.json crawlé depuis lambersart.fr"""
-    if KNOWLEDGE_FILE.exists():
-        try:
-            data = json.loads(KNOWLEDGE_FILE.read_text(encoding="utf-8"))
-            log.info(f"knowledge.json chargé : {len(data)} pages")
-            return {d["url"]: d for d in data}
-        except Exception as e:
-            log.warning(f"knowledge.json illisible: {e}")
-    return {}
-
-
+KNOWLEDGE_FILE  = Path("knowledge.json")
 INDEX_TTL       = 3600 * 12
 MAX_HISTORY     = 10
 
@@ -52,117 +37,123 @@ PAGES = [
     "https://lambersart.fr/",
     "https://lambersart.fr/agenda",
     "https://lambersart.fr/actualites",
-    "https://lambersart.fr/mairie",
     "https://lambersart.fr/le-ccas-de-lambersart",
     "https://lambersart.fr/education",
     "https://lambersart.fr/associations",
     "https://lambersart.fr/urbanisme",
-    "https://lambersart.fr/se-divertir",
-    "https://lambersart.fr/cadre-de-vie",
+    "https://lambersart.fr/se-deplacer",
     "https://lambersart.fr/jeunesse",
     "https://lambersart.fr/seniors",
+    "https://lambersart.fr/etat-civil",
+    "https://lambersart.fr/arena",
 ]
 
-# ── Base de connaissance Lambersart ──────────────────────────────────────────
-KNOWLEDGE = """
-=== MAIRIE DE LAMBERSART ===
-Adresse : 19 avenue Georges-Clemenceau, 59130 Lambersart
-Téléphone : 03 20 08 44 44
-Email : mairie@lambersart.fr
-Site web : https://lambersart.fr
-Horaires d'ouverture :
-  - Lundi, mardi, mercredi, jeudi : 8h30 - 17h30
-  - Vendredi : 8h30 - 12h30
-  - Samedi, dimanche : fermé
-
-=== SERVICES MUNICIPAUX ===
-État civil (naissances, mariages, décès, cartes d'identité) :
-  Contacter la mairie au 03 20 08 44 44
-  Prise de RDV obligatoire pour cartes d'identité et passeports
-
-Police municipale : 03 20 08 44 60
-  Disponible du lundi au vendredi
-
-=== CCAS (Centre Communal d'Action Sociale) ===
-Adresse : 19 avenue Georges-Clemenceau, 59130 Lambersart
-Téléphone : 03 20 08 44 44
-Le CCAS aide les habitants en difficulté : aides financières, portage de repas,
-aide à domicile, soutien aux seniors, épicerie sociale.
-Seniors : activités, ateliers bien-être, transport accompagné
-Inscriptions : contacter le CCAS directement
-
-=== ÉCOLES ET ÉDUCATION ===
-Lambersart compte plusieurs écoles maternelles et primaires publiques.
-Inscription scolaire : mairie, service éducation, 03 20 08 44 44
-Cantines scolaires : menus disponibles sur https://lambersart.fr
-Accueil périscolaire : avant et après l'école, contacter la mairie
-
-=== JEUNESSE ===
-Espace Jeunesse Honvault : 14 rue Marcel Derycke, Lambersart
-Activités pour les jeunes, jobs d'été, alternance, Job Day
-Contact : 03 20 08 44 44
-
-=== SPORTS ET LOISIRS ===
-Arena de Lambersart : équipement sportif municipal
-Associations sportives : annuaire sur https://lambersart.fr
-Réservation salles : contacter la mairie
-
-=== URBANISME ET TRAVAUX ===
-Permis de construire, déclarations préalables : service urbanisme
-Contact : 03 20 08 44 44
-Plans locaux d'urbanisme disponibles en mairie
-
-=== DÉCHETS ET RECYCLAGE ===
-Collecte des ordures ménagères : selon quartier, consulter https://lambersart.fr/je-recycle
-Déchetterie : selon calendrier de la Métropole Européenne de Lille
-Tri sélectif : bacs jaunes (emballages), verts (verre), gris (ordures)
-
-=== TRANSPORTS ===
-Lambersart est desservie par le réseau Ilévia (anciennement Transpole)
-Lignes de bus et métro accessibles depuis la ville
-Vélos en libre-service V'Lille disponibles
-
-=== AGENDA ET ÉVÉNEMENTS ===
-Agenda complet sur https://lambersart.fr/agenda
-Événements récents (mai 2026) :
-  - Job Day : mercredi 20 mai, espace jeunesse Honvault
-  - Assemblée de quartier Canteleu : 21 mai, centre Jules Maillot
-  - Ciné-débat : 21 mai, salle Malraux
-  - Braderie Briqueterie : 23 mai, rue Jean Moulin
-  - Marché nocturne : 23 mai, berges de la Deûle
-
-=== ACTUALITÉS RÉCENTES ===
-- Après-midi convivial CCAS pour les seniors (18 mai 2026) — inscription avant le 5 juin
-- Ateliers anti-escroqueries pour les +60 ans (15 mai 2026)
-- Nouveautés Arena (13 mai 2026)
-
-=== CONTACTS UTILES ===
-Mairie générale     : 03 20 08 44 44
-Police municipale   : 03 20 08 44 60
-Site officiel       : https://lambersart.fr
-Annuaire commerces  : https://lambersart.fr (rubrique Annuaire)
-Annuaire assos      : https://lambersart.fr (rubrique Associations)
-"""
+KNOWLEDGE = (
+    "=== VILLE DE LAMBERSART ===\n"
+    "Ville : Lambersart (59130) - Nord, Hauts-de-France\n"
+    "Population : ~27 400 habitants\n"
+    "Site officiel : https://lambersart.fr\n\n"
+    "=== MAIRE ET CONSEIL MUNICIPAL ===\n"
+    "Maire : Nicolas Bouche (reelu aux elections municipales de mars 2026)\n"
+    "Conseil municipal : 35 elus\n"
+    "Page conseil : https://lambersart.fr/le-conseil-municipal\n\n"
+    "=== MAIRIE ===\n"
+    "Adresse : 19 avenue Georges-Clemenceau, 59130 Lambersart\n"
+    "Telephone : 03 20 08 44 44\n"
+    "Email : mairie@lambersart.fr\n"
+    "Horaires : Lun-Jeu 8h30-17h30 / Ven 8h30-12h30 / Sam-Dim ferme\n"
+    "Contact : https://lambersart.fr/nous-contacter\n"
+    "Formulaire : https://lambersart.fr/la-mairie-vous-repond\n\n"
+    "=== ETAT CIVIL ===\n"
+    "Naissances, mariages, deces, PACS : service etat civil mairie\n"
+    "Cartes d'identite et passeports : RDV obligatoire au 03 20 08 44 44\n"
+    "Page : https://lambersart.fr/etat-civil\n"
+    "Titres identite : https://lambersart.fr/titres-didentite\n\n"
+    "=== POLICE MUNICIPALE ===\n"
+    "Telephone : 03 20 08 44 60\n"
+    "Disponible lundi au vendredi\n"
+    "Signalement : https://lambersart.fr/signalements\n\n"
+    "=== CCAS ===\n"
+    "Centre Communal d'Action Sociale - accompagnement habitants en difficulte\n"
+    "Services : aides financieres, portage repas, aide a domicile, epicerie sociale\n"
+    "Navette CCAS : transport gratuit pour +70 ans ou retraites a mobilite reduite\n"
+    "Apres-midi convivial seniors CCAS : inscriptions avant le 5 juin 2026\n"
+    "Contact : 03 20 08 44 44\n"
+    "Page : https://lambersart.fr/le-ccas-de-lambersart\n\n"
+    "=== SENIORS ===\n"
+    "Activites, animations, ateliers bien-etre\n"
+    "Ateliers anti-escroqueries +60 ans (mai 2026)\n"
+    "Allocation solidarite personnes agees : https://lambersart.fr/demander-une-allocation-de-solidarite-aux-personnes-agees-en-ligne\n"
+    "Page : https://lambersart.fr/seniors\n\n"
+    "=== DEPLACEMENTS ===\n"
+    "Reseau Ilevia (bus, metro, tramway)\n"
+    "Velos V'Lille en libre-service\n"
+    "Box velos securises : https://lambersart.fr/demander-une-place-dans-un-box-velos\n"
+    "Page : https://lambersart.fr/deplacements\n\n"
+    "=== EDUCATION ===\n"
+    "Projet educatif et social 2024-2029\n"
+    "Inscription scolaire : 03 20 08 44 44\n"
+    "Restauration scolaire : https://lambersart.fr/la-restauration-scolaire\n"
+    "Page : https://lambersart.fr/education\n\n"
+    "=== JEUNESSE ===\n"
+    "Point Information Jeunesse : 12-25 ans\n"
+    "Job Day 2026 : mercredi 21 mai 2026 - emploi, alternance, stages\n"
+    "Conseil des Jeunes : https://lambersart.fr/le-conseil-des-jeunes\n"
+    "Page : https://lambersart.fr/jeunesse\n\n"
+    "=== SPORTS ET LOISIRS ===\n"
+    "Arena Lambersart : sports de sable, bords de Deule (nouvelle gestion avril 2026)\n"
+    "Cinema : https://lambersart.fr/cinema\n"
+    "Bibliotheques et ludotheques : https://lambersart.fr/bibliotheques-et-ludotheques\n"
+    "Salle Malraux : salle de spectacle\n\n"
+    "=== URBANISME ===\n"
+    "Permis de construire, declarations prealables, PLU\n"
+    "Page : https://lambersart.fr/urbanisme-0\n\n"
+    "=== AGENDA MAI 2026 ===\n"
+    "18 mai - 5 juin : Inscription gouter CCAS seniors\n"
+    "21 mai : Job Day emploi et alternance\n"
+    "21 mai : Assemblee de quartier Canteleu\n"
+    "21 mai : Cine-debat salle Malraux\n"
+    "23 mai : Braderie Briqueterie (rue Jean Moulin)\n"
+    "23 mai : Marche nocturne (berges de la Deule)\n"
+    "Agenda complet : https://lambersart.fr/agenda\n\n"
+    "=== CONTACTS UTILES ===\n"
+    "Mairie           : 03 20 08 44 44\n"
+    "Police municipale: 03 20 08 44 60\n"
+    "Site officiel    : https://lambersart.fr\n"
+    "Demarches ligne  : https://lambersart.fr/mes-demarches\n"
+    "Newsletter       : https://lambersart.fr/sinscrire-la-newsletter\n"
+)
 
 PROMPT = (
     "Tu es l'assistant numerique officiel de la ville de Lambersart (59130, Nord).\n"
     "Tu aides les habitants a trouver des informations sur les services municipaux.\n"
     "Reponds toujours en francais, sois professionnel et bienveillant.\n"
-    "Utilise en priorite la BASE DE CONNAISSANCE ci-dessous pour repondre.\n"
-    "Si une information supplementaire est disponible dans le CONTEXTE, utilise-la aussi.\n"
-    "N'invente jamais d'information absente. Si tu ne sais pas, dis-le et oriente vers la mairie.\n\n"
+    "Utilise en priorite la BASE DE CONNAISSANCE ci-dessous.\n"
+    "N'invente jamais d'information absente. Si tu ne sais pas, oriente vers la mairie.\n\n"
     "BASE DE CONNAISSANCE LAMBERSART :\n"
     + KNOWLEDGE +
     "\n\nCONTEXTE SUPPLEMENTAIRE DU SITE :\n{context}"
 )
 
-URL_PATTERN = re.compile(r"https?://lambersart\.fr[^\s\]\)\"']*")
+URL_PATTERN = re.compile(r"https?://lambersart\.fr[^\s\])'\"]*")
 
 _index, _vec, _mat = {}, None, None
 
+
+def load_knowledge_index():
+    if KNOWLEDGE_FILE.exists():
+        try:
+            data = json.loads(KNOWLEDGE_FILE.read_text(encoding="utf-8"))
+            log.info("knowledge.json charge : %d pages", len(data))
+            return {d["url"]: d for d in data}
+        except Exception as e:
+            log.warning("knowledge.json illisible: %s", e)
+    return {}
+
+
 def fetch(url):
     try:
-        r = req_lib.get(url, timeout=10, headers={"User-Agent": "LambersartBot/1.0"})
+        r = req_lib.get(url, timeout=10, headers={"User-Agent": "LambersartBot/2.0"})
         r.raise_for_status()
         soup = BeautifulSoup(r.text, "html.parser")
         title = soup.title.get_text(strip=True) if soup.title else url
@@ -174,6 +165,7 @@ def fetch(url):
         log.warning("Fetch failed %s: %s", url, e)
         return {"url": url, "title": url, "text": ""}
 
+
 def fit():
     global _vec, _mat
     docs = list(_index.values())
@@ -181,16 +173,22 @@ def fit():
         return
     _vec = TfidfVectorizer(analyzer="word", ngram_range=(1, 2), min_df=1,
                            token_pattern=r"[a-zA-Z]{2,}")
-    _mat = _vec.fit_transform([d["text"] for d in docs])
+    _mat = _vec.fit_transform([d["text"] for d in docs if d.get("text")])
+
 
 def build(force=False):
     global _index
+    # Charger knowledge.json en priorite
+    kn = load_knowledge_index()
+
     if not force and INDEX_FILE.exists():
         if time.time() - INDEX_FILE.stat().st_mtime < INDEX_TTL:
             log.info("Index from cache")
-            _index = {d["url"]: d for d in json.loads(INDEX_FILE.read_text(encoding="utf-8"))}
+            cached = {d["url"]: d for d in json.loads(INDEX_FILE.read_text(encoding="utf-8"))}
+            _index = {**kn, **cached}
             fit()
             return
+
     log.info("Crawling lambersart.fr...")
     docs = []
     for url in PAGES:
@@ -198,15 +196,13 @@ def build(force=False):
         if d["text"]:
             docs.append(d)
         time.sleep(0.3)
-    _index = {d["url"]: d for d in docs}
-    # Fusionner avec knowledge.json si disponible
-    kn = load_knowledge_index()
-    if kn:
-        _index = {**kn, **_index}   # crawl dynamique prend priorité
-        log.info(f"Index fusionné : {len(_index)} pages (knowledge.json + crawl)")
-    INDEX_FILE.write_text(json.dumps(list(_index.values()), ensure_ascii=False, indent=2), encoding="utf-8")
+
+    crawled = {d["url"]: d for d in docs}
+    _index = {**kn, **crawled}
+    INDEX_FILE.write_text(json.dumps(docs, ensure_ascii=False, indent=2), encoding="utf-8")
     fit()
     log.info("Index ready: %d pages", len(_index))
+
 
 def get_context(query, k=3):
     if _vec is None:
@@ -217,11 +213,13 @@ def get_context(query, k=3):
         if sims[i] < 0.01:
             continue
         d = list(_index.values())[i]
+        if not d.get("text"):
+            continue
         chunks.append("[" + d["url"] + "]\n" + d["text"][:800])
     return "\n\n---\n\n".join(chunks)
 
+
 def mistral_call(messages, retries=3):
-    """Appel Mistral avec retry automatique sur erreur 429."""
     for attempt in range(retries):
         try:
             client = Mistral(api_key=MISTRAL_API_KEY)
@@ -233,31 +231,34 @@ def mistral_call(messages, retries=3):
                 r = client.chat(
                     model=MODEL,
                     messages=[ChatMessage(role=m["role"], content=m["content"]) for m in messages],
-                    temperature=0.2,
-                    max_tokens=600
+                    temperature=0.2, max_tokens=600
                 )
             return r.choices[0].message.content
         except Exception as e:
             err = str(e)
             if "429" in err or "capacity" in err.lower() or "rate" in err.lower():
-                wait = 2 ** attempt  # 1s, 2s, 4s
-                log.warning(f"Rate limit Mistral, retry {attempt+1}/{retries} dans {wait}s")
+                wait = 2 ** attempt
+                log.warning("Rate limit Mistral, retry %d/%d dans %ds", attempt+1, retries, wait)
                 time.sleep(wait)
             else:
                 raise
-    return "Le service est momentanément surchargé. Réessayez dans quelques secondes ou appelez le 03 20 08 44 44."
+    return "Le service est momentanement surcharge. Reessayez dans quelques secondes ou appelez le 03 20 08 44 44."
+
 
 sessions = {}
+
 
 @app.route("/")
 def index():
     return jsonify({"status": "ok", "service": "Assistant Lambersart",
                     "pages_indexed": len(_index)})
 
+
 @app.route("/health")
 def health():
     return jsonify({"status": "ok", "model": MODEL,
                     "indexed": len(_index), "mistral_v1": MISTRAL_V1})
+
 
 @app.route("/chat", methods=["POST"])
 @limiter.limit("20/minute")
@@ -284,12 +285,14 @@ def chat():
         log.error("Mistral error: %s", e)
         return jsonify({"error": str(e)}), 500
 
+
 @app.route("/reindex", methods=["POST"])
 def reindex():
     if request.headers.get("X-Admin-Token", "") != ADMIN_TOKEN:
         return jsonify({"error": "Unauthorized"}), 401
     build(force=True)
     return jsonify({"status": "ok", "pages": len(_index)})
+
 
 build()
 
