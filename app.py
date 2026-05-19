@@ -116,20 +116,32 @@ def get_context(query, k=3):
         chunks.append("[" + d["url"] + "]\n" + d["text"][:800])
     return "\n\n---\n\n".join(chunks)
 
-def mistral_call(messages):
-    client = Mistral(api_key=MISTRAL_API_KEY)
-    if MISTRAL_V1:
-        r = client.chat.complete(model=MODEL, messages=messages,
-                                 temperature=0.2, max_tokens=600)
-    else:
-        from mistralai.models.chat_completion import ChatMessage
-        r = client.chat(
-            model=MODEL,
-            messages=[ChatMessage(role=m["role"], content=m["content"]) for m in messages],
-            temperature=0.2,
-            max_tokens=600
-        )
-    return r.choices[0].message.content
+def mistral_call(messages, retries=3):
+    """Appel Mistral avec retry automatique sur erreur 429."""
+    for attempt in range(retries):
+        try:
+            client = Mistral(api_key=MISTRAL_API_KEY)
+            if MISTRAL_V1:
+                r = client.chat.complete(model=MODEL, messages=messages,
+                                         temperature=0.2, max_tokens=600)
+            else:
+                from mistralai.models.chat_completion import ChatMessage
+                r = client.chat(
+                    model=MODEL,
+                    messages=[ChatMessage(role=m["role"], content=m["content"]) for m in messages],
+                    temperature=0.2,
+                    max_tokens=600
+                )
+            return r.choices[0].message.content
+        except Exception as e:
+            err = str(e)
+            if "429" in err or "capacity" in err.lower() or "rate" in err.lower():
+                wait = 2 ** attempt  # 1s, 2s, 4s
+                log.warning(f"Rate limit Mistral, retry {attempt+1}/{retries} dans {wait}s")
+                time.sleep(wait)
+            else:
+                raise
+    return "Le service est momentanément surchargé. Réessayez dans quelques secondes ou appelez le 03 20 08 44 44."
 
 sessions = {}
 
