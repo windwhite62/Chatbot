@@ -29,6 +29,22 @@ MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
 MODEL           = os.environ.get("MISTRAL_MODEL", "mistral-small-latest")
 ADMIN_TOKEN     = os.environ.get("ADMIN_TOKEN", "changeme")
 INDEX_FILE      = Path("lambersart_index.json")
+
+# ── Base de connaissance statique (knowledge.json) ────────────────────────────
+KNOWLEDGE_FILE = Path("knowledge.json")
+
+def load_knowledge_index():
+    """Charge knowledge.json crawlé depuis lambersart.fr"""
+    if KNOWLEDGE_FILE.exists():
+        try:
+            data = json.loads(KNOWLEDGE_FILE.read_text(encoding="utf-8"))
+            log.info(f"knowledge.json chargé : {len(data)} pages")
+            return {d["url"]: d for d in data}
+        except Exception as e:
+            log.warning(f"knowledge.json illisible: {e}")
+    return {}
+
+
 INDEX_TTL       = 3600 * 12
 MAX_HISTORY     = 10
 
@@ -183,7 +199,12 @@ def build(force=False):
             docs.append(d)
         time.sleep(0.3)
     _index = {d["url"]: d for d in docs}
-    INDEX_FILE.write_text(json.dumps(docs, ensure_ascii=False, indent=2), encoding="utf-8")
+    # Fusionner avec knowledge.json si disponible
+    kn = load_knowledge_index()
+    if kn:
+        _index = {**kn, **_index}   # crawl dynamique prend priorité
+        log.info(f"Index fusionné : {len(_index)} pages (knowledge.json + crawl)")
+    INDEX_FILE.write_text(json.dumps(list(_index.values()), ensure_ascii=False, indent=2), encoding="utf-8")
     fit()
     log.info("Index ready: %d pages", len(_index))
 
