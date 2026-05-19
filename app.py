@@ -47,14 +47,97 @@ PAGES = [
     "https://lambersart.fr/seniors",
 ]
 
+# ── Base de connaissance Lambersart ──────────────────────────────────────────
+KNOWLEDGE = """
+=== MAIRIE DE LAMBERSART ===
+Adresse : 19 avenue Georges-Clemenceau, 59130 Lambersart
+Téléphone : 03 20 08 44 44
+Email : mairie@lambersart.fr
+Site web : https://lambersart.fr
+Horaires d'ouverture :
+  - Lundi, mardi, mercredi, jeudi : 8h30 - 17h30
+  - Vendredi : 8h30 - 12h30
+  - Samedi, dimanche : fermé
+
+=== SERVICES MUNICIPAUX ===
+État civil (naissances, mariages, décès, cartes d'identité) :
+  Contacter la mairie au 03 20 08 44 44
+  Prise de RDV obligatoire pour cartes d'identité et passeports
+
+Police municipale : 03 20 08 44 60
+  Disponible du lundi au vendredi
+
+=== CCAS (Centre Communal d'Action Sociale) ===
+Adresse : 19 avenue Georges-Clemenceau, 59130 Lambersart
+Téléphone : 03 20 08 44 44
+Le CCAS aide les habitants en difficulté : aides financières, portage de repas,
+aide à domicile, soutien aux seniors, épicerie sociale.
+Seniors : activités, ateliers bien-être, transport accompagné
+Inscriptions : contacter le CCAS directement
+
+=== ÉCOLES ET ÉDUCATION ===
+Lambersart compte plusieurs écoles maternelles et primaires publiques.
+Inscription scolaire : mairie, service éducation, 03 20 08 44 44
+Cantines scolaires : menus disponibles sur https://lambersart.fr
+Accueil périscolaire : avant et après l'école, contacter la mairie
+
+=== JEUNESSE ===
+Espace Jeunesse Honvault : 14 rue Marcel Derycke, Lambersart
+Activités pour les jeunes, jobs d'été, alternance, Job Day
+Contact : 03 20 08 44 44
+
+=== SPORTS ET LOISIRS ===
+Arena de Lambersart : équipement sportif municipal
+Associations sportives : annuaire sur https://lambersart.fr
+Réservation salles : contacter la mairie
+
+=== URBANISME ET TRAVAUX ===
+Permis de construire, déclarations préalables : service urbanisme
+Contact : 03 20 08 44 44
+Plans locaux d'urbanisme disponibles en mairie
+
+=== DÉCHETS ET RECYCLAGE ===
+Collecte des ordures ménagères : selon quartier, consulter https://lambersart.fr/je-recycle
+Déchetterie : selon calendrier de la Métropole Européenne de Lille
+Tri sélectif : bacs jaunes (emballages), verts (verre), gris (ordures)
+
+=== TRANSPORTS ===
+Lambersart est desservie par le réseau Ilévia (anciennement Transpole)
+Lignes de bus et métro accessibles depuis la ville
+Vélos en libre-service V'Lille disponibles
+
+=== AGENDA ET ÉVÉNEMENTS ===
+Agenda complet sur https://lambersart.fr/agenda
+Événements récents (mai 2026) :
+  - Job Day : mercredi 20 mai, espace jeunesse Honvault
+  - Assemblée de quartier Canteleu : 21 mai, centre Jules Maillot
+  - Ciné-débat : 21 mai, salle Malraux
+  - Braderie Briqueterie : 23 mai, rue Jean Moulin
+  - Marché nocturne : 23 mai, berges de la Deûle
+
+=== ACTUALITÉS RÉCENTES ===
+- Après-midi convivial CCAS pour les seniors (18 mai 2026) — inscription avant le 5 juin
+- Ateliers anti-escroqueries pour les +60 ans (15 mai 2026)
+- Nouveautés Arena (13 mai 2026)
+
+=== CONTACTS UTILES ===
+Mairie générale     : 03 20 08 44 44
+Police municipale   : 03 20 08 44 60
+Site officiel       : https://lambersart.fr
+Annuaire commerces  : https://lambersart.fr (rubrique Annuaire)
+Annuaire assos      : https://lambersart.fr (rubrique Associations)
+"""
+
 PROMPT = (
     "Tu es l'assistant numerique officiel de la ville de Lambersart (59130, Nord).\n"
     "Tu aides les habitants a trouver des informations sur les services municipaux.\n"
     "Reponds toujours en francais, sois professionnel et bienveillant.\n"
-    "Base-toi UNIQUEMENT sur le contexte ci-dessous. N'invente rien.\n"
-    "Si l'info est absente, propose d'appeler la mairie : 03 20 08 44 44\n"
-    "Horaires mairie : lun-jeu 8h30-17h30, ven 8h30-12h30\n"
-    "CONTEXTE :\n{context}"
+    "Utilise en priorite la BASE DE CONNAISSANCE ci-dessous pour repondre.\n"
+    "Si une information supplementaire est disponible dans le CONTEXTE, utilise-la aussi.\n"
+    "N'invente jamais d'information absente. Si tu ne sais pas, dis-le et oriente vers la mairie.\n\n"
+    "BASE DE CONNAISSANCE LAMBERSART :\n"
+    + KNOWLEDGE +
+    "\n\nCONTEXTE SUPPLEMENTAIRE DU SITE :\n{context}"
 )
 
 URL_PATTERN = re.compile(r"https?://lambersart\.fr[^\s\]\)\"']*")
