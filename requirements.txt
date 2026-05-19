@@ -1,7 +1,6 @@
 flask>=2.3
 flask-cors>=4.0
 flask-limiter>=3.0
-python-dotenv>=1.0
 mistralai==1.2.5
 requests>=2.31
 beautifulsoup4>=4.12
