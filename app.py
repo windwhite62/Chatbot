@@ -13,7 +13,13 @@ except ImportError:
     MISTRAL_V1 = False
 
 import requests as req_lib
+import io
 from bs4 import BeautifulSoup
+try:
+    import pdfplumber
+    PDF_ENGINE = "pdfplumber"
+except ImportError:
+    PDF_ENGINE = None
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
@@ -29,24 +35,12 @@ MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
 MODEL           = os.environ.get("MISTRAL_MODEL", "mistral-small-latest")
 ADMIN_TOKEN     = os.environ.get("ADMIN_TOKEN", "changeme")
 INDEX_FILE      = Path("lambersart_index.json")
+PDF_INDEX_FILE  = Path("lambersart_pdf_index.json")
 KNOWLEDGE_FILE  = Path("knowledge.json")
 INDEX_TTL       = 3600 * 12
 MAX_HISTORY     = 10
 
-PAGES = [
-    "https://lambersart.fr/",
-    "https://lambersart.fr/agenda",
-    "https://lambersart.fr/actualites",
-    "https://lambersart.fr/le-ccas-de-lambersart",
-    "https://lambersart.fr/education",
-    "https://lambersart.fr/associations",
-    "https://lambersart.fr/urbanisme",
-    "https://lambersart.fr/se-deplacer",
-    "https://lambersart.fr/jeunesse",
-    "https://lambersart.fr/seniors",
-    "https://lambersart.fr/etat-civil",
-    "https://lambersart.fr/arena",
-]
+SEED_URLS   = ["https://lambersart.fr/"]
 
 KNOWLEDGE = (
     "=== VILLE DE LAMBERSART ===\n"
@@ -193,10 +187,74 @@ def fetch(url):
         for t in soup(["script","style","nav","footer","header","form","noscript"]):
             t.decompose()
         text = re.sub(r"\n{3,}", "\n\n", soup.get_text(separator="\n", strip=True))
-        return {"url": url, "title": title, "text": text[:4000]}
+        return {"url": url, "title": title, "text": text[:4000], "raw_html": r.text[:20000]}
     except Exception as e:
         log.warning("Fetch failed %s: %s", url, e)
         return {"url": url, "title": url, "text": ""}
+
+
+def fetch_pdf(url):
+    """Telecharge et extrait le texte d un PDF."""
+    if PDF_ENGINE is None:
+        return None
+    try:
+        r = req_lib.get(url, timeout=25,
+                        headers={"User-Agent": "LambersartBot/2.0"},
+                        stream=True)
+        r.raise_for_status()
+        text = ""
+        with pdfplumber.open(io.BytesIO(r.content)) as pdf:
+            for page in pdf.pages:  # toutes les pages
+                t = page.extract_text()
+                if t:
+                    text += t + "\n"
+        text = re.sub(r"\n{3,}", "\n\n", text.strip())
+        if len(text) < 50:
+            return None
+        title = url.split("/")[-1].replace("-", " ").replace("_", " ").replace(".pdf", "")
+        log.info("PDF indexe : %s (%d chars)", title, len(text))
+        return {"url": url, "title": title, "text": text[:5000], "type": "pdf"}
+    except Exception as e:
+        log.warning("PDF failed %s : %s", url, e)
+        return None
+
+
+def crawl_pdfs_list(pdf_urls):
+    """Indexe une liste de PDFs lambersart.fr."""
+    if PDF_ENGINE is None:
+        log.warning("pdfplumber non installe - PDFs ignores")
+        return {}
+
+    if PDF_INDEX_FILE.exists():
+        if time.time() - PDF_INDEX_FILE.stat().st_mtime < INDEX_TTL:
+            data = json.loads(PDF_INDEX_FILE.read_text(encoding="utf-8"))
+            log.info("PDF cache : %d docs", len(data))
+            return {d["url"]: d for d in data}
+
+    pdf_urls = {u for u in pdf_urls if "lambersart.fr" in u}
+    log.info("PDFs a indexer : %d (aucune limite)", len(pdf_urls))
+
+    docs = []
+    for url in list(pdf_urls):
+        d = fetch_pdf(url)
+        if d:
+            docs.append(d)
+            log.info("PDF [%d] OK : %s", len(docs), d["title"][:60])
+        time.sleep(0.3)
+
+    PDF_INDEX_FILE.write_text(json.dumps(docs, ensure_ascii=False, indent=2), encoding="utf-8")
+    log.info("PDFs indexes : %d / %d", len(docs), len(pdf_urls))
+    return {d["url"]: d for d in docs}
+
+
+def crawl_pdfs(pages_index):
+    """Compatibilite : detecte les PDFs depuis un index de pages."""
+    pdf_re = re.compile(r'https?://[^\s"<>]+[.]pdf', re.I)
+    pdf_urls = set()
+    for doc in pages_index.values():
+        for src in (doc.get("raw_html", ""), doc.get("text", "")):
+            pdf_urls.update(pdf_re.findall(src))
+    return crawl_pdfs_list(pdf_urls)
 
 
 def fit():
@@ -233,8 +291,12 @@ def build(force=False):
     crawled = {d["url"]: d for d in docs}
     _index = {**kn, **crawled}
     INDEX_FILE.write_text(json.dumps(docs, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # Indexer les PDFs trouvés sur les pages
+    pdf_index = crawl_pdfs({**kn, **crawled})
+    _index = {**kn, **crawled, **pdf_index}
     fit()
-    log.info("Index ready: %d pages", len(_index))
+    log.info("Index ready: %d pages + %d PDFs", len(crawled) + len(kn), len(pdf_index))
 
 
 def get_context(query, k=3):
@@ -325,6 +387,8 @@ def reindex():
         return jsonify({"error": "Unauthorized"}), 401
     build(force=True)
     return jsonify({"status": "ok", "pages": len(_index)})
+
+
 
 
 build()
