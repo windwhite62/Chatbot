@@ -39,6 +39,9 @@ INDEX_FILE      = Path("lambersart_index.json")
 PDF_INDEX_FILE  = Path("lambersart_pdf_index.json")
 KNOWLEDGE_FILE  = Path("knowledge.json")
 INDEX_TTL       = 3600 * 12
+MAX_PAGES       = 150   # limite RAM Render 512MB
+MAX_PDFS        = 50    # limite RAM Render 512MB
+MAX_PDF_PAGES   = 8     # limite RAM Render 512MB
 MAX_HISTORY     = 10
 
 KNOWLEDGE = (
