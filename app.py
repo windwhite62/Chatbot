@@ -249,7 +249,7 @@ def crawl_pdfs_list(pdf_urls):
 
 def crawl_pdfs(pages_index):
     """Compatibilite : detecte les PDFs depuis un index de pages."""
-    pdf_re = re.compile(r'https?://[^\s"<>]+[.]pdf', re.I)
+    pdf_re = re.compile(r"https?://[^\s<>]+[.]pdf", re.I)
     pdf_urls = set()
     for doc in pages_index.values():
         for src in (doc.get("raw_html", ""), doc.get("text", "")):
@@ -269,34 +269,65 @@ def fit():
 
 def build(force=False):
     global _index
-    # Charger knowledge.json en priorite
     kn = load_knowledge_index()
 
     if not force and INDEX_FILE.exists():
         if time.time() - INDEX_FILE.stat().st_mtime < INDEX_TTL:
             log.info("Index from cache")
             cached = {d["url"]: d for d in json.loads(INDEX_FILE.read_text(encoding="utf-8"))}
-            _index = {**kn, **cached}
+            pdf_cached = {}
+            if PDF_INDEX_FILE.exists():
+                pdf_cached = {d["url"]: d for d in json.loads(PDF_INDEX_FILE.read_text(encoding="utf-8"))}
+            _index = {**kn, **cached, **pdf_cached}
             fit()
+            log.info("Cache charge : %d pages + %d PDFs", len(cached), len(pdf_cached))
             return
 
-    log.info("Crawling lambersart.fr...")
-    docs = []
-    for url in PAGES:
+    log.info("Crawl recursif complet lambersart.fr...")
+    visited  = set()
+    queue    = ["https://lambersart.fr/"]
+    docs     = []
+    pdf_urls = set()
+    pdf_re   = re.compile(r"https?://[^\s<>]+[.]pdf", re.I)
+
+    while queue:
+        url = queue.pop(0)
+        if url in visited:
+            continue
+        visited.add(url)
+
+        if any(url.endswith(ext) for ext in (".jpg",".png",".gif",".zip",".doc",".xls",".css",".js")):
+            continue
+        if url.endswith(".pdf"):
+            pdf_urls.add(url)
+            continue
+
         d = fetch(url)
-        if d["text"]:
+        time.sleep(0.25)
+
+        if d.get("text"):
             docs.append(d)
-        time.sleep(0.3)
+            log.info("[%d] %s", len(docs), url)
+
+        for link in d.get("links", []):
+            if link not in visited and link not in queue:
+                if link.endswith(".pdf"):
+                    pdf_urls.add(link)
+                else:
+                    queue.append(link)
+
+        for pu in pdf_re.findall(d.get("raw_html", "")):
+            if "lambersart.fr" in pu:
+                pdf_urls.add(pu)
 
     crawled = {d["url"]: d for d in docs}
-    _index = {**kn, **crawled}
     INDEX_FILE.write_text(json.dumps(docs, ensure_ascii=False, indent=2), encoding="utf-8")
+    log.info("Crawl HTML termine : %d pages", len(docs))
 
-    # Indexer les PDFs trouvés sur les pages
-    pdf_index = crawl_pdfs({**kn, **crawled})
-    _index = {**kn, **crawled, **pdf_index}
+    pdf_idx = crawl_pdfs_list(pdf_urls)
+    _index = {**kn, **crawled, **pdf_idx}
     fit()
-    log.info("Index ready: %d pages + %d PDFs", len(crawled) + len(kn), len(pdf_index))
+    log.info("Index pret : %d pages + %d PDFs", len(crawled) + len(kn), len(pdf_idx))
 
 
 def get_context(query, k=3):
