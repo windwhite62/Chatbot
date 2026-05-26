@@ -150,48 +150,165 @@ def fetch(url):
 
 
 def fetch_pdf(url):
+    """Telecharge et extrait TOUT le texte d un PDF, avec plusieurs fallbacks."""
     if PDF_ENGINE is None:
         return None
     try:
-        r = req_lib.get(url, timeout=25,
-                        headers={"User-Agent": "LambersartBot/2.0"})
+        r = req_lib.get(
+            url, timeout=30,
+            headers={
+                "User-Agent": "Mozilla/5.0 (compatible; LambersartBot/2.0)",
+                "Accept": "application/pdf,*/*"
+            },
+            allow_redirects=True
+        )
         r.raise_for_status()
-        text = ""
-        with pdfplumber.open(io.BytesIO(r.content)) as pdf:
-            for page in pdf.pages:
-                t = page.extract_text()
-                if t:
-                    text += t + "\n"
-        text = re.sub(r"\n{3,}", "\n\n", text.strip())
-        if len(text) < 50:
+
+        content = r.content
+        if len(content) < 100:
+            log.warning("PDF vide ou trop petit : %s (%d bytes)", url, len(content))
             return None
-        title = url.split("/")[-1].replace("-"," ").replace("_"," ").replace(".pdf","")
-        log.info("PDF indexe : %s (%d chars)", title, len(text))
-        return {"url": url, "title": title, "text": text[:6000], "type": "pdf"}
+
+        text_pages = []
+        try:
+            with pdfplumber.open(io.BytesIO(content)) as pdf:
+                for i, page in enumerate(pdf.pages):
+                    # Methode 1 : extraction normale
+                    t = page.extract_text(x_tolerance=3, y_tolerance=3)
+                    if not t or len(t.strip()) < 10:
+                        # Methode 2 : extraction par mots
+                        words = page.extract_words()
+                        if words:
+                            t = " ".join(w["text"] for w in words)
+                    if t and t.strip():
+                        text_pages.append(f"[Page {i+1}]\n{t.strip()}")
+        except Exception as e:
+            log.warning("pdfplumber failed pour %s : %s", url, e)
+            return None
+
+        if not text_pages:
+            log.warning("PDF sans texte extractible (scan ?) : %s", url)
+            return None
+
+        full_text = "\n\n".join(text_pages)
+        full_text = re.sub(r"\n{3,}", "\n\n", full_text.strip())
+
+        # Titre propre depuis l URL
+        filename = url.split("/")[-1]
+        title = re.sub(r"[_\-]+", " ", filename.replace(".pdf", "")).strip().title()
+        if not title:
+            title = url
+
+        log.info("PDF OK : %s | %d pages | %d chars", title, len(text_pages), len(full_text))
+        return {
+            "url": url,
+            "title": title,
+            "text": full_text[:8000],
+            "type": "pdf",
+            "pages": len(text_pages)
+        }
+
+    except req_lib.exceptions.SSLError:
+        # Retry sans verification SSL pour certains PDFs de mairie
+        try:
+            r = req_lib.get(url, timeout=30, verify=False,
+                            headers={"User-Agent": "Mozilla/5.0 (compatible; LambersartBot/2.0)"})
+            r.raise_for_status()
+            text_pages = []
+            with pdfplumber.open(io.BytesIO(r.content)) as pdf:
+                for i, page in enumerate(pdf.pages):
+                    t = page.extract_text(x_tolerance=3, y_tolerance=3)
+                    if t and t.strip():
+                        text_pages.append(f"[Page {i+1}]\n{t.strip()}")
+            if not text_pages:
+                return None
+            full_text = "\n\n".join(text_pages)
+            title = re.sub(r"[_\-]+", " ", url.split("/")[-1].replace(".pdf","")).title()
+            log.info("PDF OK (no-SSL) : %s | %d pages", title, len(text_pages))
+            return {"url": url, "title": title, "text": full_text[:8000],
+                    "type": "pdf", "pages": len(text_pages)}
+        except Exception as e2:
+            log.warning("PDF SSL fallback failed %s : %s", url, e2)
+            return None
     except Exception as e:
         log.warning("PDF failed %s : %s", url, e)
         return None
 
 
+def discover_pdf_urls(pages_index):
+    """Collecte toutes les URLs PDF depuis les pages HTML indexees."""
+    pdf_re   = re.compile(r'https?://[^\s<>"\']+\.pdf(?:[?#][^\s<>"\']*)?', re.I)
+    href_re  = re.compile(r'href=["\']([^"\']+\.pdf[^"\']*)["\']', re.I)
+    pdf_urls = set()
+
+    for doc in pages_index.values():
+        raw = doc.get("raw_html", "")
+        txt = doc.get("text", "")
+        base_url = doc.get("url", "")
+
+        # Methode 1 : regex sur le HTML brut (liens absolus)
+        for u in pdf_re.findall(raw):
+            if "lambersart.fr" in u:
+                pdf_urls.add(u.split("?")[0].split("#")[0])
+
+        # Methode 2 : href relatifs
+        for href in href_re.findall(raw):
+            if href.startswith("/"):
+                pdf_urls.add("https://lambersart.fr" + href.split("?")[0])
+            elif href.startswith("http") and "lambersart.fr" in href:
+                pdf_urls.add(href.split("?")[0])
+
+        # Methode 3 : texte brut (liens copies)
+        for u in pdf_re.findall(txt):
+            if "lambersart.fr" in u:
+                pdf_urls.add(u.split("?")[0])
+
+    # Nettoyer
+    pdf_urls = {u for u in pdf_urls
+                if "lambersart.fr" in u
+                and not any(u.lower().endswith(e) for e in (".jpg",".png",".gif"))}
+
+    log.info("URLs PDF decouverts : %d", len(pdf_urls))
+    return pdf_urls
+
+
 def crawl_pdfs_list(pdf_urls):
+    """Indexe tous les PDFs. Force le re-crawl si le cache est vide ou expire."""
     if PDF_ENGINE is None:
-        log.warning("pdfplumber non installe - PDFs ignores")
+        log.warning("pdfplumber non installe - PDFs ignores. Faites : pip install pdfplumber")
         return {}
+
+    # Cache valide ?
     if PDF_INDEX_FILE.exists():
-        if time.time() - PDF_INDEX_FILE.stat().st_mtime < INDEX_TTL:
-            data = json.loads(PDF_INDEX_FILE.read_text(encoding="utf-8"))
-            log.info("PDF cache : %d docs", len(data))
-            return {d["url"]: d for d in data}
+        cached_data = json.loads(PDF_INDEX_FILE.read_text(encoding="utf-8"))
+        cache_age   = time.time() - PDF_INDEX_FILE.stat().st_mtime
+        if cache_age < INDEX_TTL and len(cached_data) > 0:
+            log.info("PDF cache valide : %d docs (age: %dmin)", len(cached_data), int(cache_age/60))
+            return {d["url"]: d for d in cached_data}
+
     pdf_urls = {u for u in pdf_urls if "lambersart.fr" in u}
-    log.info("PDFs a indexer : %d", len(pdf_urls))
-    docs = []
-    for url in list(pdf_urls):
+    if not pdf_urls:
+        log.info("Aucun PDF lambersart.fr detecte")
+        return {}
+
+    log.info("Indexation PDFs : %d fichiers...", len(pdf_urls))
+    docs    = []
+    errors  = []
+
+    for i, url in enumerate(sorted(pdf_urls), 1):
+        log.info("PDF [%d/%d] : %s", i, len(pdf_urls), url)
         d = fetch_pdf(url)
         if d:
             docs.append(d)
-        time.sleep(0.3)
+        else:
+            errors.append(url)
+        time.sleep(0.5)  # Respecter le serveur
+
+    log.info("PDFs : %d OK / %d erreurs / %d total", len(docs), len(errors), len(pdf_urls))
+    if errors:
+        log.info("PDFs en erreur : %s", errors[:5])
+
     PDF_INDEX_FILE.write_text(json.dumps(docs, ensure_ascii=False, indent=2), encoding="utf-8")
-    log.info("PDFs indexes : %d", len(docs))
     return {d["url"]: d for d in docs}
 
 
@@ -215,7 +332,17 @@ def build(force=False):
             cached = {d["url"]: d for d in json.loads(INDEX_FILE.read_text(encoding="utf-8"))}
             pdf_cached = {}
             if PDF_INDEX_FILE.exists():
-                pdf_cached = {d["url"]: d for d in json.loads(PDF_INDEX_FILE.read_text(encoding="utf-8"))}
+                age_pdf = time.time() - PDF_INDEX_FILE.stat().st_mtime
+                if age_pdf < INDEX_TTL:
+                    pdf_cached = {d["url"]: d for d in json.loads(PDF_INDEX_FILE.read_text(encoding="utf-8"))}
+                else:
+                    log.info("Cache PDF expire, re-indexation PDFs...")
+                    pdf_urls_c = discover_pdf_urls(cached)
+                    pdf_cached = crawl_pdfs_list(pdf_urls_c)
+            else:
+                log.info("Pas de cache PDF, indexation initiale...")
+                pdf_urls_c = discover_pdf_urls(cached)
+                pdf_cached = crawl_pdfs_list(pdf_urls_c)
             _index = {**kn, **cached, **pdf_cached}
             fit()
             log.info("Cache : %d pages + %d PDFs", len(cached), len(pdf_cached))
@@ -255,7 +382,12 @@ def build(force=False):
     INDEX_FILE.write_text(json.dumps(docs, ensure_ascii=False, indent=2), encoding="utf-8")
     log.info("Crawl HTML : %d pages", len(docs))
 
-    pdf_idx = crawl_pdfs_list(pdf_urls)
+    # Decouvrir les PDFs depuis les pages HTML + liens collectes
+    pdf_urls_from_pages = discover_pdf_urls(crawled)
+    all_pdf_urls = pdf_urls | pdf_urls_from_pages
+    log.info("Total PDFs a indexer : %d", len(all_pdf_urls))
+
+    pdf_idx = crawl_pdfs_list(all_pdf_urls)
     _index = {**kn, **crawled, **pdf_idx}
     fit()
     log.info("Index pret : %d pages + %d PDFs", len(crawled)+len(kn), len(pdf_idx))
