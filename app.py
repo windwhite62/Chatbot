@@ -172,7 +172,7 @@ def fetch_pdf(url):
         text_pages = []
         try:
             with pdfplumber.open(io.BytesIO(content)) as pdf:
-                for i, page in enumerate(pdf.pages):
+                for i, page in enumerate(pdf.pages[:MAX_PDF_PAGES]):
                     # Methode 1 : extraction normale
                     t = page.extract_text(x_tolerance=3, y_tolerance=3)
                     if not t or len(t.strip()) < 10:
@@ -216,7 +216,7 @@ def fetch_pdf(url):
             r.raise_for_status()
             text_pages = []
             with pdfplumber.open(io.BytesIO(r.content)) as pdf:
-                for i, page in enumerate(pdf.pages):
+                for i, page in enumerate(pdf.pages[:MAX_PDF_PAGES]):
                     t = page.extract_text(x_tolerance=3, y_tolerance=3)
                     if t and t.strip():
                         text_pages.append(f"[Page {i+1}]\n{t.strip()}")
@@ -295,6 +295,7 @@ def crawl_pdfs_list(pdf_urls):
     docs    = []
     errors  = []
 
+    pdf_urls = set(list(sorted(pdf_urls))[:MAX_PDFS])
     for i, url in enumerate(sorted(pdf_urls), 1):
         log.info("PDF [%d/%d] : %s", i, len(pdf_urls), url)
         d = fetch_pdf(url)
@@ -355,7 +356,7 @@ def build(force=False):
     pdf_urls = set()
     pdf_re   = re.compile(r"https?://[^\s<>\"']+[.]pdf", re.I)
 
-    while queue:
+    while queue and len(visited) < MAX_PAGES:
         url = queue.pop(0)
         if url in visited:
             continue
@@ -369,8 +370,9 @@ def build(force=False):
         d = fetch(url)
         time.sleep(0.25)
         if d.get("text"):
+            d.pop("raw_html", None)  # liberer RAM
             docs.append(d)
-            log.info("[%d] %s", len(docs), url)
+            log.info("[%d/%d] %s", len(docs), MAX_PAGES, url)
         for link in d.get("links", []):
             if link not in visited:
                 queue.append(link)
