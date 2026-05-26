@@ -15,14 +15,15 @@ except ImportError:
 import requests as req_lib
 import io
 from bs4 import BeautifulSoup
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
+
 try:
     import pdfplumber
     PDF_ENGINE = "pdfplumber"
 except ImportError:
     PDF_ENGINE = None
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-import numpy as np
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -40,12 +41,10 @@ KNOWLEDGE_FILE  = Path("knowledge.json")
 INDEX_TTL       = 3600 * 12
 MAX_HISTORY     = 10
 
-SEED_URLS   = ["https://lambersart.fr/"]
-
 KNOWLEDGE = (
     "=== VILLE DE LAMBERSART ===\n"
     "Ville : Lambersart (59130) - Nord, Hauts-de-France\n"
-    "Population : ~27 400 habitants\n"
+    "Population : environ 27 400 habitants\n"
     "Site officiel : https://lambersart.fr\n\n"
     "=== MAIRE ET CONSEIL MUNICIPAL ===\n"
     "Maire : Nicolas Bouche (reelu aux elections municipales de mars 2026)\n"
@@ -55,114 +54,57 @@ KNOWLEDGE = (
     "Adresse : 19 avenue Georges-Clemenceau, 59130 Lambersart\n"
     "Telephone : 03 20 08 44 44\n"
     "Email : mairie@lambersart.fr\n"
-    "Horaires : Lun-Jeu 8h30-17h30 / Ven 8h30-12h30 / Sam-Dim ferme\n"
-    "Contact : https://lambersart.fr/nous-contacter\n"
-    "Formulaire : https://lambersart.fr/la-mairie-vous-repond\n\n"
+    "Horaires : Lundi-Jeudi 8h30-17h30 / Vendredi 8h30-12h30 / Samedi-Dimanche ferme\n"
+    "Contact : https://lambersart.fr/nous-contacter\n\n"
     "=== ETAT CIVIL ===\n"
     "Naissances, mariages, deces, PACS : service etat civil mairie\n"
-    "Cartes d'identite et passeports : RDV obligatoire au 03 20 08 44 44\n"
-    "Page : https://lambersart.fr/etat-civil\n"
-    "Titres identite : https://lambersart.fr/titres-didentite\n\n"
+    "Cartes identite et passeports : RDV obligatoire au 03 20 08 44 44\n"
+    "Page : https://lambersart.fr/etat-civil\n\n"
     "=== POLICE MUNICIPALE ===\n"
     "Telephone : 03 20 08 44 60\n"
-    "Disponible lundi au vendredi\n"
-    "Signalement : https://lambersart.fr/signalements\n\n"
+    "Page : https://lambersart.fr/prevention-et-securite-publique\n\n"
     "=== CCAS ===\n"
-    "Centre Communal d'Action Sociale - accompagnement habitants en difficulte\n"
     "Services : aides financieres, portage repas, aide a domicile, epicerie sociale\n"
     "Navette CCAS : transport gratuit pour +70 ans ou retraites a mobilite reduite\n"
-    "Apres-midi convivial seniors CCAS : inscriptions avant le 5 juin 2026\n"
     "Contact : 03 20 08 44 44\n"
     "Page : https://lambersart.fr/le-ccas-de-lambersart\n\n"
     "=== SENIORS ===\n"
-    "Activites, animations, ateliers bien-etre\n"
-    "Ateliers anti-escroqueries +60 ans (mai 2026)\n"
-    "Allocation solidarite personnes agees : https://lambersart.fr/demander-une-allocation-de-solidarite-aux-personnes-agees-en-ligne\n"
     "Page : https://lambersart.fr/seniors\n\n"
     "=== DEPLACEMENTS ===\n"
     "Reseau Ilevia (bus, metro, tramway)\n"
     "Velos V'Lille en libre-service\n"
-    "Box velos securises : https://lambersart.fr/demander-une-place-dans-un-box-velos\n"
     "Page : https://lambersart.fr/deplacements\n\n"
     "=== EDUCATION ===\n"
-    "Projet educatif et social 2024-2029\n"
     "Inscription scolaire : 03 20 08 44 44\n"
-    "Restauration scolaire : https://lambersart.fr/la-restauration-scolaire\n"
     "Page : https://lambersart.fr/education\n\n"
     "=== JEUNESSE ===\n"
-    "Point Information Jeunesse : 12-25 ans\n"
-    "Job Day 2026 : mercredi 21 mai 2026 - emploi, alternance, stages\n"
-    "Conseil des Jeunes : https://lambersart.fr/le-conseil-des-jeunes\n"
     "Page : https://lambersart.fr/jeunesse\n\n"
-    "=== SPORTS ET LOISIRS ===\n"
-    "Arena Lambersart : sports de sable, bords de Deule (nouvelle gestion avril 2026)\n"
-    "Cinema : https://lambersart.fr/cinema\n"
-    "Bibliotheques et ludotheques : https://lambersart.fr/bibliotheques-et-ludotheques\n"
-    "Salle Malraux : salle de spectacle\n\n"
-    "=== URBANISME ===\n"
-    "Permis de construire, declarations prealables, PLU\n"
-    "Page : https://lambersart.fr/urbanisme-0\n\n"
-    "=== AGENDA MAI 2026 ===\n"
-    "18 mai - 5 juin : Inscription gouter CCAS seniors\n"
-    "21 mai : Job Day emploi et alternance\n"
-    "21 mai : Assemblee de quartier Canteleu\n"
-    "21 mai : Cine-debat salle Malraux\n"
-    "23 mai : Braderie Briqueterie (rue Jean Moulin)\n"
-    "23 mai : Marche nocturne (berges de la Deule)\n"
-    "Agenda complet : https://lambersart.fr/agenda\n\n"
     "=== CONTACTS UTILES ===\n"
-    "Mairie           : 03 20 08 44 44\n"
-    "Police municipale: 03 20 08 44 60\n"
-    "Site officiel    : https://lambersart.fr\n"
-    "Demarches ligne  : https://lambersart.fr/mes-demarches\n"
-    "Newsletter       : https://lambersart.fr/sinscrire-la-newsletter\n"
+    "Mairie            : 03 20 08 44 44\n"
+    "Police municipale : 03 20 08 44 60\n"
+    "Site officiel     : https://lambersart.fr\n"
+    "Demarches en ligne: https://lambersart.fr/mes-demarches\n"
 )
 
 PROMPT = (
-    "Tu es LAMI, l'assistant municipal intelligent de Lambersart (59130, Nord).\n"
-    "Tu es chaleureux, precis et utile. Tu reponds comme un agent d'accueil expert.\n\n"
-
-    "=== STYLE DE REPONSE ===\n"
-    "1. Commence toujours par une accroche courte et chaleureuse (1 ligne max)\n"
-    "2. Presente les infos avec des blocs visuels clairs separes par des lignes vides\n"
-    "3. Utilise ces emojis selon le contexte :\n"
-    "   📍 adresse   🕐 horaires   📞 telephone   📧 email\n"
-    "   ✅ info cle  📅 date/agenda  🎓 ecole  👴 seniors  🏊 sport\n"
-    "   🔗 lien utile  💡 conseil  ⚠️ attention  🎉 evenement\n"
-    "4. Pour les horaires, les numeros de tel et adresses : une info par ligne\n"
-    "5. Termine par une ligne de cloture aidante avec un emoji 😊 ou 👋\n"
-    "6. Reponds en francais courant, sans jargon administratif\n"
-    "7. Maximum 180 mots. Si besoin de plus, utilise des sections courtes\n"
-    "8. NE JAMAIS utiliser de tirets (-) pour les listes, uniquement des emojis\n"
-    "9. Gras **texte** pour mettre en valeur les infos critiques\n\n"
-
-    "=== EXEMPLES DE BONNES REPONSES ===\n\n"
-
-    "Question : Horaires mairie ?\n"
-    "Reponse :\n"
-    "Bonjour ! La mairie de Lambersart vous accueille :\n\n"
-    "🕐 **Lundi – Jeudi :** 8h30 → 17h30\n"
-    "🕐 **Vendredi :** 8h30 → 12h30\n\n"
-    "📍 19 avenue Georges-Clemenceau, 59130 Lambersart\n"
-    "📞 **03 20 08 44 44**\n"
-    "📧 mairie@lambersart.fr\n\n"
-    "💡 Pour un RDV carte d'identite ou passeport, appelez d'abord pour reserver votre creneau 😊\n\n"
-
-    "Question : Job Day c'est quand ?\n"
-    "Reponse :\n"
-    "🎉 Le **Job Day 2026** approche !\n\n"
-    "📅 **Mercredi 21 mai 2026**\n"
-    "📍 Espace Jeunesse Honvault, Lambersart\n\n"
-    "✅ Emploi, alternance, stages : tous les secteurs representes\n"
-    "✅ Ouvert aux jeunes et aux demandeurs d'emploi\n\n"
-    "👋 Venez avec votre CV ! Plus d'infos sur lambersart.fr/job-day-2\n\n"
-
-    "=== BASE DE CONNAISSANCE ===\n"
+    "Tu es l'assistant numerique officiel de la ville de Lambersart (59130, Nord).\n"
+    "Tu aides les habitants a trouver des informations sur les services municipaux.\n\n"
+    "REGLES ABSOLUES - A RESPECTER IMPERATIVEMENT :\n"
+    "1. Tu ne reponds QUE sur la base des informations ci-dessous (BASE DE CONNAISSANCE + CONTEXTE DU SITE).\n"
+    "2. Si une information n'est PAS dans la base ou le contexte : reponds 'Je n'ai pas cette information. Contactez la mairie au 03 20 08 44 44 ou sur lambersart.fr'\n"
+    "3. N'INVENTE JAMAIS de date, d'horaire, de nom, de tarif ou de procedure.\n"
+    "4. N'INVENTE JAMAIS de lien ou d'adresse email.\n"
+    "5. Si tu n'es pas certain a 100%, dis-le clairement et oriente vers la mairie.\n\n"
+    "STYLE DE REPONSE :\n"
+    "- Reponds en francais, de facon claire et structuree\n"
+    "- Utilise des emojis pour aerer : 📍 adresse, 🕐 horaires, 📞 telephone, 📅 date\n"
+    "- Mets les infos cles en gras avec **texte**\n"
+    "- Termine par une invitation a contacter la mairie si besoin\n\n"
+    "BASE DE CONNAISSANCE LAMBERSART :\n"
     + KNOWLEDGE +
-    "\n\n=== CONTEXTE DU SITE ===\n{context}"
+    "\n\nCONTEXTE EXTRAIT DU SITE lambersart.fr :\n{context}\n\n"
+    "Si le contexte ci-dessus ne contient pas la reponse, dis-le honnetement."
 )
-
-URL_PATTERN = re.compile(r"https?://lambersart\.fr[^\s\])'\"]*")
 
 _index, _vec, _mat = {}, None, None
 
@@ -180,91 +122,87 @@ def load_knowledge_index():
 
 def fetch(url):
     try:
-        r = req_lib.get(url, timeout=10, headers={"User-Agent": "LambersartBot/2.0"})
+        r = req_lib.get(url, timeout=12, headers={"User-Agent": "LambersartBot/2.0"})
         r.raise_for_status()
         soup = BeautifulSoup(r.text, "html.parser")
         title = soup.title.get_text(strip=True) if soup.title else url
+        # Collecter liens internes
+        links = set()
+        for a in soup.find_all("a", href=True):
+            href = a["href"].strip()
+            if href.startswith("/") and not href.startswith("//"):
+                href = "https://lambersart.fr" + href
+            if (href.startswith("https://lambersart.fr")
+                    and "?" not in href and "#" not in href):
+                links.add(href.rstrip("/"))
         for t in soup(["script","style","nav","footer","header","form","noscript"]):
             t.decompose()
         text = re.sub(r"\n{3,}", "\n\n", soup.get_text(separator="\n", strip=True))
-        return {"url": url, "title": title, "text": text[:4000], "raw_html": r.text[:20000]}
+        return {
+            "url": url, "title": title,
+            "text": text[:5000],
+            "raw_html": r.text[:40000],
+            "links": list(links)
+        }
     except Exception as e:
         log.warning("Fetch failed %s: %s", url, e)
-        return {"url": url, "title": url, "text": ""}
+        return {"url": url, "title": url, "text": "", "raw_html": "", "links": []}
 
 
 def fetch_pdf(url):
-    """Telecharge et extrait le texte d un PDF."""
     if PDF_ENGINE is None:
         return None
     try:
         r = req_lib.get(url, timeout=25,
-                        headers={"User-Agent": "LambersartBot/2.0"},
-                        stream=True)
+                        headers={"User-Agent": "LambersartBot/2.0"})
         r.raise_for_status()
         text = ""
         with pdfplumber.open(io.BytesIO(r.content)) as pdf:
-            for page in pdf.pages:  # toutes les pages
+            for page in pdf.pages:
                 t = page.extract_text()
                 if t:
                     text += t + "\n"
         text = re.sub(r"\n{3,}", "\n\n", text.strip())
         if len(text) < 50:
             return None
-        title = url.split("/")[-1].replace("-", " ").replace("_", " ").replace(".pdf", "")
+        title = url.split("/")[-1].replace("-"," ").replace("_"," ").replace(".pdf","")
         log.info("PDF indexe : %s (%d chars)", title, len(text))
-        return {"url": url, "title": title, "text": text[:5000], "type": "pdf"}
+        return {"url": url, "title": title, "text": text[:6000], "type": "pdf"}
     except Exception as e:
         log.warning("PDF failed %s : %s", url, e)
         return None
 
 
 def crawl_pdfs_list(pdf_urls):
-    """Indexe une liste de PDFs lambersart.fr."""
     if PDF_ENGINE is None:
         log.warning("pdfplumber non installe - PDFs ignores")
         return {}
-
     if PDF_INDEX_FILE.exists():
         if time.time() - PDF_INDEX_FILE.stat().st_mtime < INDEX_TTL:
             data = json.loads(PDF_INDEX_FILE.read_text(encoding="utf-8"))
             log.info("PDF cache : %d docs", len(data))
             return {d["url"]: d for d in data}
-
     pdf_urls = {u for u in pdf_urls if "lambersart.fr" in u}
-    log.info("PDFs a indexer : %d (aucune limite)", len(pdf_urls))
-
+    log.info("PDFs a indexer : %d", len(pdf_urls))
     docs = []
     for url in list(pdf_urls):
         d = fetch_pdf(url)
         if d:
             docs.append(d)
-            log.info("PDF [%d] OK : %s", len(docs), d["title"][:60])
         time.sleep(0.3)
-
     PDF_INDEX_FILE.write_text(json.dumps(docs, ensure_ascii=False, indent=2), encoding="utf-8")
-    log.info("PDFs indexes : %d / %d", len(docs), len(pdf_urls))
+    log.info("PDFs indexes : %d", len(docs))
     return {d["url"]: d for d in docs}
-
-
-def crawl_pdfs(pages_index):
-    """Compatibilite : detecte les PDFs depuis un index de pages."""
-    pdf_re = re.compile(r"https?://[^\s<>]+[.]pdf", re.I)
-    pdf_urls = set()
-    for doc in pages_index.values():
-        for src in (doc.get("raw_html", ""), doc.get("text", "")):
-            pdf_urls.update(pdf_re.findall(src))
-    return crawl_pdfs_list(pdf_urls)
 
 
 def fit():
     global _vec, _mat
-    docs = list(_index.values())
+    docs = [d for d in _index.values() if d.get("text","").strip()]
     if not docs:
         return
-    _vec = TfidfVectorizer(analyzer="word", ngram_range=(1, 2), min_df=1,
+    _vec = TfidfVectorizer(analyzer="word", ngram_range=(1,2), min_df=1,
                            token_pattern=r"[a-zA-Z]{2,}")
-    _mat = _vec.fit_transform([d["text"] for d in docs if d.get("text")])
+    _mat = _vec.fit_transform([d["text"] for d in docs])
 
 
 def build(force=False):
@@ -280,7 +218,7 @@ def build(force=False):
                 pdf_cached = {d["url"]: d for d in json.loads(PDF_INDEX_FILE.read_text(encoding="utf-8"))}
             _index = {**kn, **cached, **pdf_cached}
             fit()
-            log.info("Cache charge : %d pages + %d PDFs", len(cached), len(pdf_cached))
+            log.info("Cache : %d pages + %d PDFs", len(cached), len(pdf_cached))
             return
 
     log.info("Crawl recursif complet lambersart.fr...")
@@ -288,60 +226,52 @@ def build(force=False):
     queue    = ["https://lambersart.fr/"]
     docs     = []
     pdf_urls = set()
-    pdf_re   = re.compile(r"https?://[^\s<>]+[.]pdf", re.I)
+    pdf_re   = re.compile(r"https?://[^\s<>\"']+[.]pdf", re.I)
 
     while queue:
         url = queue.pop(0)
         if url in visited:
             continue
         visited.add(url)
-
-        if any(url.endswith(ext) for ext in (".jpg",".png",".gif",".zip",".doc",".xls",".css",".js")):
+        skip_exts = (".jpg",".jpeg",".png",".gif",".zip",".doc",".xls",".css",".js",".svg",".ico",".webp")
+        if any(url.lower().endswith(e) for e in skip_exts):
             continue
-        if url.endswith(".pdf"):
+        if url.lower().endswith(".pdf"):
             pdf_urls.add(url)
             continue
-
         d = fetch(url)
         time.sleep(0.25)
-
         if d.get("text"):
             docs.append(d)
             log.info("[%d] %s", len(docs), url)
-
         for link in d.get("links", []):
-            if link not in visited and link not in queue:
-                if link.endswith(".pdf"):
-                    pdf_urls.add(link)
-                else:
-                    queue.append(link)
-
+            if link not in visited:
+                queue.append(link)
         for pu in pdf_re.findall(d.get("raw_html", "")):
             if "lambersart.fr" in pu:
                 pdf_urls.add(pu)
 
     crawled = {d["url"]: d for d in docs}
     INDEX_FILE.write_text(json.dumps(docs, ensure_ascii=False, indent=2), encoding="utf-8")
-    log.info("Crawl HTML termine : %d pages", len(docs))
+    log.info("Crawl HTML : %d pages", len(docs))
 
     pdf_idx = crawl_pdfs_list(pdf_urls)
     _index = {**kn, **crawled, **pdf_idx}
     fit()
-    log.info("Index pret : %d pages + %d PDFs", len(crawled) + len(kn), len(pdf_idx))
+    log.info("Index pret : %d pages + %d PDFs", len(crawled)+len(kn), len(pdf_idx))
 
 
-def get_context(query, k=3):
-    if _vec is None:
+def get_context(query, k=4):
+    if _vec is None or _mat is None:
         return ""
     sims = cosine_similarity(_vec.transform([query]), _mat).flatten()
     chunks = []
+    docs = [d for d in _index.values() if d.get("text","").strip()]
     for i in np.argsort(sims)[::-1][:k]:
         if sims[i] < 0.01:
             continue
-        d = list(_index.values())[i]
-        if not d.get("text"):
-            continue
-        chunks.append("[" + d["url"] + "]\n" + d["text"][:800])
+        d = docs[i]
+        chunks.append("[" + d["url"] + "]\n" + d["text"][:1000])
     return "\n\n---\n\n".join(chunks)
 
 
@@ -351,24 +281,24 @@ def mistral_call(messages, retries=3):
             client = Mistral(api_key=MISTRAL_API_KEY)
             if MISTRAL_V1:
                 r = client.chat.complete(model=MODEL, messages=messages,
-                                         temperature=0.2, max_tokens=600)
+                                         temperature=0.1, max_tokens=600)
             else:
                 from mistralai.models.chat_completion import ChatMessage
                 r = client.chat(
                     model=MODEL,
                     messages=[ChatMessage(role=m["role"], content=m["content"]) for m in messages],
-                    temperature=0.2, max_tokens=600
+                    temperature=0.1, max_tokens=600
                 )
             return r.choices[0].message.content
         except Exception as e:
             err = str(e)
-            if "429" in err or "capacity" in err.lower() or "rate" in err.lower():
+            if "429" in err or "rate" in err.lower() or "capacity" in err.lower():
                 wait = 2 ** attempt
-                log.warning("Rate limit Mistral, retry %d/%d dans %ds", attempt+1, retries, wait)
+                log.warning("Rate limit, retry %d/%d dans %ds", attempt+1, retries, wait)
                 time.sleep(wait)
             else:
                 raise
-    return "Le service est momentanement surcharge. Reessayez dans quelques secondes ou appelez le 03 20 08 44 44."
+    return "Service momentanement indisponible. Appelez le 03 20 08 44 44."
 
 
 sessions = {}
@@ -382,8 +312,7 @@ def index():
 
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok", "model": MODEL,
-                    "indexed": len(_index), "mistral_v1": MISTRAL_V1})
+    return jsonify({"status": "ok", "model": MODEL, "indexed": len(_index)})
 
 
 @app.route("/chat", methods=["POST"])
@@ -400,10 +329,11 @@ def chat():
     hist.append({"role": "user", "content": msg})
 
     try:
-        msgs   = [{"role": "system", "content": PROMPT.format(context=ctx)}] + hist[-MAX_HISTORY:]
+        msgs   = [{"role": "system", "content": PROMPT.format(context=ctx or "Aucun contexte trouve.")}] + hist[-MAX_HISTORY:]
         answer = mistral_call(msgs)
         hist.append({"role": "assistant", "content": answer})
-        urls    = URL_PATTERN.findall(answer)
+        url_re  = re.compile(r"https?://lambersart\.fr[^\s\])'\"]*")
+        urls    = url_re.findall(answer)
         sources = [{"url": u, "title": _index.get(u, {}).get("title", u)}
                    for u in dict.fromkeys(urls)]
         return jsonify({"answer": answer, "sources": sources})
@@ -418,8 +348,6 @@ def reindex():
         return jsonify({"error": "Unauthorized"}), 401
     build(force=True)
     return jsonify({"status": "ok", "pages": len(_index)})
-
-
 
 
 build()
