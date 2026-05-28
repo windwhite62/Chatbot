@@ -25,6 +25,14 @@ try:
 except ImportError:
     PDF_ENGINE = None
 
+try:
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.chrome.service import Service
+    SELENIUM_OK = True
+except ImportError:
+    SELENIUM_OK = False
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
@@ -38,10 +46,10 @@ ADMIN_TOKEN     = os.environ.get("ADMIN_TOKEN", "changeme")
 INDEX_FILE      = Path("lambersart_index.json")
 PDF_INDEX_FILE  = Path("lambersart_pdf_index.json")
 KNOWLEDGE_FILE  = Path("knowledge.json")
-INDEX_TTL       = 3600 * 2   # refresh auto toutes les 2h
-MAX_PAGES       = 999999  # illimite
-MAX_PDFS        = 999999  # illimite
-MAX_PDF_PAGES   = 999999  # illimite
+INDEX_TTL       = 3600 * 2
+MAX_PAGES       = 999999
+MAX_PDFS        = 999999
+MAX_PDF_PAGES   = 999999
 MAX_HISTORY     = 10
 
 KNOWLEDGE = (
@@ -83,9 +91,9 @@ KNOWLEDGE = (
     "=== JEUNESSE ===\n"
     "Page : https://lambersart.fr/jeunesse\n\n"
     "=== CONTACTS UTILES ===\n"
-    "Mairie            : 03 20 08 44 44\n"
+    "Mairie : 03 20 08 44 44\n"
     "Police municipale : 03 20 08 44 60\n"
-    "Site officiel     : https://lambersart.fr\n"
+    "Site officiel : https://lambersart.fr\n"
     "Demarches en ligne: https://lambersart.fr/mes-demarches\n"
 )
 
@@ -111,7 +119,6 @@ PROMPT = (
 
 _index, _vec, _mat = {}, None, None
 
-
 def load_knowledge_index():
     if KNOWLEDGE_FILE.exists():
         try:
@@ -122,14 +129,12 @@ def load_knowledge_index():
             log.warning("knowledge.json illisible: %s", e)
     return {}
 
-
 def fetch(url):
     try:
         r = req_lib.get(url, timeout=12, headers={"User-Agent": "LambersartBot/2.0"})
         r.raise_for_status()
         soup = BeautifulSoup(r.text, "html.parser")
         title = soup.title.get_text(strip=True) if soup.title else url
-        # Collecter liens internes
         links = set()
         for a in soup.find_all("a", href=True):
             href = a["href"].strip()
@@ -151,9 +156,7 @@ def fetch(url):
         log.warning("Fetch failed %s: %s", url, e)
         return {"url": url, "title": url, "text": "", "raw_html": "", "links": []}
 
-
 def fetch_pdf(url):
-    """Telecharge et extrait TOUT le texte d un PDF, avec plusieurs fallbacks."""
     if PDF_ENGINE is None:
         return None
     try:
@@ -166,20 +169,16 @@ def fetch_pdf(url):
             allow_redirects=True
         )
         r.raise_for_status()
-
         content = r.content
         if len(content) < 100:
             log.warning("PDF vide ou trop petit : %s (%d bytes)", url, len(content))
             return None
-
         text_pages = []
         try:
             with pdfplumber.open(io.BytesIO(content)) as pdf:
                 for i, page in enumerate(pdf.pages[:MAX_PDF_PAGES]):
-                    # Methode 1 : extraction normale
                     t = page.extract_text(x_tolerance=3, y_tolerance=3)
                     if not t or len(t.strip()) < 10:
-                        # Methode 2 : extraction par mots
                         words = page.extract_words()
                         if words:
                             t = " ".join(w["text"] for w in words)
@@ -188,20 +187,15 @@ def fetch_pdf(url):
         except Exception as e:
             log.warning("pdfplumber failed pour %s : %s", url, e)
             return None
-
         if not text_pages:
             log.warning("PDF sans texte extractible (scan ?) : %s", url)
             return None
-
         full_text = "\n\n".join(text_pages)
         full_text = re.sub(r"\n{3,}", "\n\n", full_text.strip())
-
-        # Titre propre depuis l URL
         filename = url.split("/")[-1]
         title = re.sub(r"[_\-]+", " ", filename.replace(".pdf", "")).strip().title()
         if not title:
             title = url
-
         log.info("PDF OK : %s | %d pages | %d chars", title, len(text_pages), len(full_text))
         return {
             "url": url,
@@ -210,12 +204,10 @@ def fetch_pdf(url):
             "type": "pdf",
             "pages": len(text_pages)
         }
-
     except req_lib.exceptions.SSLError:
-        # Retry sans verification SSL pour certains PDFs de mairie
         try:
             r = req_lib.get(url, timeout=30, verify=False,
-                            headers={"User-Agent": "Mozilla/5.0 (compatible; LambersartBot/2.0)"})
+                headers={"User-Agent": "Mozilla/5.0 (compatible; LambersartBot/2.0)"})
             r.raise_for_status()
             text_pages = []
             with pdfplumber.open(io.BytesIO(r.content)) as pdf:
@@ -237,67 +229,106 @@ def fetch_pdf(url):
         log.warning("PDF failed %s : %s", url, e)
         return None
 
-
 def discover_pdf_urls(pages_index):
     """Collecte toutes les URLs PDF depuis les pages HTML indexees."""
-    pdf_re   = re.compile(r'https?://[^\s<>"\']+\.pdf(?:[?#][^\s<>"\']*)?', re.I)
-    href_re  = re.compile(r'href=["\']([^"\']+\.pdf[^"\']*)["\']', re.I)
+    pdf_re  = re.compile(r'https?://[^\s<>"\']+\.pdf(?:[?#][^\s<>"\']*)?', re.I)
+    href_re = re.compile(r'href=["\']([^"\']+\.pdf[^"\']*)["\']', re.I)
     pdf_urls = set()
-
     for doc in pages_index.values():
         raw = doc.get("raw_html", "")
         txt = doc.get("text", "")
-        base_url = doc.get("url", "")
-
-        # Methode 1 : regex sur le HTML brut (liens absolus)
         for u in pdf_re.findall(raw):
             if "lambersart.fr" in u:
                 pdf_urls.add(u.split("?")[0].split("#")[0])
-
-        # Methode 2 : href relatifs
         for href in href_re.findall(raw):
             if href.startswith("/"):
                 pdf_urls.add("https://lambersart.fr" + href.split("?")[0])
             elif href.startswith("http") and "lambersart.fr" in href:
                 pdf_urls.add(href.split("?")[0])
-
-        # Methode 3 : texte brut (liens copies)
         for u in pdf_re.findall(txt):
             if "lambersart.fr" in u:
                 pdf_urls.add(u.split("?")[0])
-
-    # Nettoyer
     pdf_urls = {u for u in pdf_urls
                 if "lambersart.fr" in u
                 and not any(u.lower().endswith(e) for e in (".jpg",".png",".gif"))}
-
-    log.info("URLs PDF decouverts : %d", len(pdf_urls))
+    log.info("URLs PDF decouverts (HTML) : %d", len(pdf_urls))
     return pdf_urls
 
+def discover_pdf_urls_selenium(pages_index):
+    """Decouvre les PDFs charges en JavaScript avec Chrome headless."""
+    if not SELENIUM_OK:
+        log.warning("Selenium non installe - ignore. pip install selenium")
+        return set()
+    log.info("Selenium : decouverte PDFs en cours...")
+    opts = Options()
+    opts.add_argument("--headless")
+    opts.add_argument("--no-sandbox")
+    opts.add_argument("--disable-dev-shm-usage")
+    opts.add_argument("--disable-gpu")
+    opts.binary_location = "/usr/bin/chromium"
+    service = Service("/usr/bin/chromedriver")
+    try:
+        driver = webdriver.Chrome(service=service, options=opts)
+    except Exception as e:
+        log.warning("Selenium Chrome echec : %s", e)
+        return set()
+
+    pdf_re   = re.compile(r'https?://[^\s<>"\']+\.pdf(?:[?#][^\s<>"\']*)?', re.I)
+    pdf_urls = set()
+
+    priority_pages = [
+        "https://lambersart.fr",
+        "https://lambersart.fr/agenda",
+        "https://lambersart.fr/publications",
+        "https://lambersart.fr/conseil-municipal",
+        "https://lambersart.fr/budget",
+        "https://lambersart.fr/urbanisme",
+        "https://lambersart.fr/documents",
+        "https://lambersart.fr/deliberations",
+        "https://lambersart.fr/comptes-rendus",
+    ]
+    all_pages = list(set(priority_pages + [p["url"] for p in pages_index.values()]))
+    log.info("Selenium : scan de %d pages", len(all_pages))
+
+    for i, url in enumerate(all_pages):
+        try:
+            driver.get(url)
+            time.sleep(2)
+            html = driver.page_source
+            for u in pdf_re.findall(html):
+                if "lambersart.fr" in u:
+                    pdf_urls.add(u.split("?")[0])
+            links = driver.find_elements("tag name", "a")
+            for link in links:
+                href = link.get_attribute("href") or ""
+                if href.lower().endswith(".pdf") and "lambersart.fr" in href:
+                    pdf_urls.add(href.split("?")[0])
+            if i % 100 == 0:
+                log.info("Selenium : %d/%d pages, %d PDFs", i, len(all_pages), len(pdf_urls))
+        except Exception as e:
+            log.warning("Selenium echec %s : %s", url, e)
+            continue
+
+    driver.quit()
+    log.info("Selenium : %d URLs PDF decouverts", len(pdf_urls))
+    return pdf_urls
 
 def crawl_pdfs_list(pdf_urls):
-    """Indexe tous les PDFs. Force le re-crawl si le cache est vide ou expire."""
     if PDF_ENGINE is None:
-        log.warning("pdfplumber non installe - PDFs ignores. Faites : pip install pdfplumber")
+        log.warning("pdfplumber non installe - PDFs ignores.")
         return {}
-
-    # Cache valide ?
     if PDF_INDEX_FILE.exists():
         cached_data = json.loads(PDF_INDEX_FILE.read_text(encoding="utf-8"))
-        cache_age   = time.time() - PDF_INDEX_FILE.stat().st_mtime
+        cache_age = time.time() - PDF_INDEX_FILE.stat().st_mtime
         if cache_age < INDEX_TTL and len(cached_data) > 0:
             log.info("PDF cache valide : %d docs (age: %dmin)", len(cached_data), int(cache_age/60))
             return {d["url"]: d for d in cached_data}
-
     pdf_urls = {u for u in pdf_urls if "lambersart.fr" in u}
     if not pdf_urls:
         log.info("Aucun PDF lambersart.fr detecte")
         return {}
-
     log.info("Indexation PDFs : %d fichiers...", len(pdf_urls))
-    docs    = []
-    errors  = []
-
+    docs, errors = [], []
     pdf_urls = set(list(sorted(pdf_urls))[:MAX_PDFS])
     for i, url in enumerate(sorted(pdf_urls), 1):
         log.info("PDF [%d/%d] : %s", i, len(pdf_urls), url)
@@ -306,15 +337,10 @@ def crawl_pdfs_list(pdf_urls):
             docs.append(d)
         else:
             errors.append(url)
-        time.sleep(0.5)  # Respecter le serveur
-
+        time.sleep(0.5)
     log.info("PDFs : %d OK / %d erreurs / %d total", len(docs), len(errors), len(pdf_urls))
-    if errors:
-        log.info("PDFs en erreur : %s", errors[:5])
-
     PDF_INDEX_FILE.write_text(json.dumps(docs, ensure_ascii=False, indent=2), encoding="utf-8")
     return {d["url"]: d for d in docs}
-
 
 def fit():
     global _vec, _mat
@@ -324,7 +350,6 @@ def fit():
     _vec = TfidfVectorizer(analyzer="word", ngram_range=(1,2), min_df=1,
                            token_pattern=r"[a-zA-Z]{2,}")
     _mat = _vec.fit_transform([d["text"] for d in docs])
-
 
 def build(force=False):
     global _index
@@ -342,10 +367,12 @@ def build(force=False):
                 else:
                     log.info("Cache PDF expire, re-indexation PDFs...")
                     pdf_urls_c = discover_pdf_urls(cached)
+                    pdf_urls_c |= discover_pdf_urls_selenium(cached)
                     pdf_cached = crawl_pdfs_list(pdf_urls_c)
             else:
-                log.info("Pas de cache PDF, indexation initiale...")
+                log.info("Pas de cache PDF, indexation initiale (Selenium + HTML)...")
                 pdf_urls_c = discover_pdf_urls(cached)
+                pdf_urls_c |= discover_pdf_urls_selenium(cached)
                 pdf_cached = crawl_pdfs_list(pdf_urls_c)
             _index = {**kn, **cached, **pdf_cached}
             fit()
@@ -353,11 +380,11 @@ def build(force=False):
             return
 
     log.info("Crawl recursif complet lambersart.fr...")
-    visited  = set()
-    queue    = ["https://lambersart.fr/"]
-    docs     = []
+    visited = set()
+    queue   = ["https://lambersart.fr/"]
+    docs    = []
     pdf_urls = set()
-    pdf_re   = re.compile(r"https?://[^\s<>\"']+[.]pdf", re.I)
+    pdf_re  = re.compile(r"https?://[^\s<>\"']+[.]pdf", re.I)
 
     while queue and len(visited) < MAX_PAGES:
         url = queue.pop(0)
@@ -373,7 +400,7 @@ def build(force=False):
         d = fetch(url)
         time.sleep(0.25)
         if d.get("text"):
-            d.pop("raw_html", None)  # liberer RAM
+            d.pop("raw_html", None)
             docs.append(d)
             log.info("[%d/%d] %s", len(docs), MAX_PAGES, url)
         for link in d.get("links", []):
@@ -387,16 +414,15 @@ def build(force=False):
     INDEX_FILE.write_text(json.dumps(docs, ensure_ascii=False, indent=2), encoding="utf-8")
     log.info("Crawl HTML : %d pages", len(docs))
 
-    # Decouvrir les PDFs depuis les pages HTML + liens collectes
     pdf_urls_from_pages = discover_pdf_urls(crawled)
-    all_pdf_urls = pdf_urls | pdf_urls_from_pages
+    pdf_urls_selenium   = discover_pdf_urls_selenium(crawled)
+    all_pdf_urls = pdf_urls | pdf_urls_from_pages | pdf_urls_selenium
     log.info("Total PDFs a indexer : %d", len(all_pdf_urls))
 
     pdf_idx = crawl_pdfs_list(all_pdf_urls)
     _index = {**kn, **crawled, **pdf_idx}
     fit()
     log.info("Index pret : %d pages + %d PDFs", len(crawled)+len(kn), len(pdf_idx))
-
 
 def get_context(query, k=4):
     if _vec is None or _mat is None:
@@ -410,7 +436,6 @@ def get_context(query, k=4):
         d = docs[i]
         chunks.append("[" + d["url"] + "]\n" + d["text"][:1000])
     return "\n\n---\n\n".join(chunks)
-
 
 def mistral_call(messages, retries=3):
     for attempt in range(retries):
@@ -437,20 +462,16 @@ def mistral_call(messages, retries=3):
                 raise
     return "Service momentanement indisponible. Appelez le 03 20 08 44 44."
 
-
 sessions = {}
-
 
 @app.route("/")
 def index():
     return jsonify({"status": "ok", "service": "Assistant Lambersart",
                     "pages_indexed": len(_index)})
 
-
 @app.route("/health")
 def health():
     return jsonify({"status": "ok", "model": MODEL, "indexed": len(_index)})
-
 
 @app.route("/chat", methods=["POST"])
 @limiter.limit("20/minute")
@@ -460,11 +481,9 @@ def chat():
     msg  = data.get("message", "").strip()[:400]
     if not msg:
         return jsonify({"error": "Message vide"}), 400
-
     ctx  = get_context(msg)
     hist = sessions.setdefault(sid, [])
     hist.append({"role": "user", "content": msg})
-
     try:
         msgs   = [{"role": "system", "content": PROMPT.format(context=ctx or "Aucun contexte trouve.")}] + hist[-MAX_HISTORY:]
         answer = mistral_call(msgs)
@@ -478,14 +497,12 @@ def chat():
         log.error("Mistral error: %s", e)
         return jsonify({"error": str(e)}), 500
 
-
 @app.route("/reindex", methods=["POST"])
 def reindex():
     if request.headers.get("X-Admin-Token", "") != ADMIN_TOKEN:
         return jsonify({"error": "Unauthorized"}), 401
     build(force=True)
     return jsonify({"status": "ok", "pages": len(_index)})
-
 
 build()
 
