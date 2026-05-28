@@ -46,7 +46,7 @@ ADMIN_TOKEN     = os.environ.get("ADMIN_TOKEN", "changeme")
 INDEX_FILE      = Path("lambersart_index.json")
 PDF_INDEX_FILE  = Path("lambersart_pdf_index.json")
 KNOWLEDGE_FILE  = Path("knowledge.json")
-INDEX_TTL       = 3600 * 2
+INDEX_TTL       = 3600 * 6
 MAX_PAGES       = 999999
 MAX_PDFS        = 999999
 MAX_PDF_PAGES   = 999999
@@ -171,7 +171,6 @@ def fetch_pdf(url):
         r.raise_for_status()
         content = r.content
         if len(content) < 100:
-            log.warning("PDF vide ou trop petit : %s (%d bytes)", url, len(content))
             return None
         text_pages = []
         try:
@@ -198,11 +197,9 @@ def fetch_pdf(url):
             title = url
         log.info("PDF OK : %s | %d pages | %d chars", title, len(text_pages), len(full_text))
         return {
-            "url": url,
-            "title": title,
+            "url": url, "title": title,
             "text": full_text[:8000],
-            "type": "pdf",
-            "pages": len(text_pages)
+            "type": "pdf", "pages": len(text_pages)
         }
     except req_lib.exceptions.SSLError:
         try:
@@ -219,7 +216,6 @@ def fetch_pdf(url):
                 return None
             full_text = "\n\n".join(text_pages)
             title = re.sub(r"[_\-]+", " ", url.split("/")[-1].replace(".pdf","")).title()
-            log.info("PDF OK (no-SSL) : %s | %d pages", title, len(text_pages))
             return {"url": url, "title": title, "text": full_text[:8000],
                     "type": "pdf", "pages": len(text_pages)}
         except Exception as e2:
@@ -230,7 +226,6 @@ def fetch_pdf(url):
         return None
 
 def discover_pdf_urls(pages_index):
-    """Collecte toutes les URLs PDF depuis les pages HTML indexees."""
     pdf_re  = re.compile(r'https?://[^\s<>"\']+\.pdf(?:[?#][^\s<>"\']*)?', re.I)
     href_re = re.compile(r'href=["\']([^"\']+\.pdf[^"\']*)["\']', re.I)
     pdf_urls = set()
@@ -255,9 +250,8 @@ def discover_pdf_urls(pages_index):
     return pdf_urls
 
 def discover_pdf_urls_selenium(pages_index):
-    """Decouvre les PDFs charges en JavaScript avec Chrome headless."""
     if not SELENIUM_OK:
-        log.warning("Selenium non installe - ignore. pip install selenium")
+        log.warning("Selenium non installe - ignore.")
         return set()
     log.info("Selenium : decouverte PDFs en cours...")
     opts = Options()
@@ -272,10 +266,8 @@ def discover_pdf_urls_selenium(pages_index):
     except Exception as e:
         log.warning("Selenium Chrome echec : %s", e)
         return set()
-
     pdf_re   = re.compile(r'https?://[^\s<>"\']+\.pdf(?:[?#][^\s<>"\']*)?', re.I)
     pdf_urls = set()
-
     priority_pages = [
         "https://lambersart.fr",
         "https://lambersart.fr/agenda",
@@ -289,7 +281,6 @@ def discover_pdf_urls_selenium(pages_index):
     ]
     all_pages = list(set(priority_pages + [p["url"] for p in pages_index.values()]))
     log.info("Selenium : scan de %d pages", len(all_pages))
-
     for i, url in enumerate(all_pages):
         try:
             driver.get(url)
@@ -308,7 +299,6 @@ def discover_pdf_urls_selenium(pages_index):
         except Exception as e:
             log.warning("Selenium echec %s : %s", url, e)
             continue
-
     driver.quit()
     log.info("Selenium : %d URLs PDF decouverts", len(pdf_urls))
     return pdf_urls
@@ -317,29 +307,45 @@ def crawl_pdfs_list(pdf_urls):
     if PDF_ENGINE is None:
         log.warning("pdfplumber non installe - PDFs ignores.")
         return {}
-    if PDF_INDEX_FILE.exists():
-        cached_data = json.loads(PDF_INDEX_FILE.read_text(encoding="utf-8"))
-        cache_age = time.time() - PDF_INDEX_FILE.stat().st_mtime
-        if cache_age < INDEX_TTL and len(cached_data) > 0:
-            log.info("PDF cache valide : %d docs (age: %dmin)", len(cached_data), int(cache_age/60))
-            return {d["url"]: d for d in cached_data}
-    pdf_urls = {u for u in pdf_urls if "lambersart.fr" in u}
-    if not pdf_urls:
+
+    docs = []
+    already_done = set()
+    if PDF_INDEX_FILE.exists() and PDF_INDEX_FILE.stat().st_size > 10:
+        try:
+            cached_data = json.loads(PDF_INDEX_FILE.read_text(encoding="utf-8"))
+            cache_age = time.time() - PDF_INDEX_FILE.stat().st_mtime
+            if cache_age < INDEX_TTL:
+                log.info("PDF cache valide : %d docs (age: %dmin)", len(cached_data), int(cache_age/60))
+                return {d["url"]: d for d in cached_data}
+            docs = cached_data
+            already_done = {d["url"] for d in cached_data}
+            log.info("PDF cache partiel recupere : %d deja indexes", len(already_done))
+        except Exception:
+            pass
+
+    pdf_urls = {u for u in pdf_urls if "lambersart.fr" in u} - already_done
+    if not pdf_urls and not docs:
         log.info("Aucun PDF lambersart.fr detecte")
         return {}
-    log.info("Indexation PDFs : %d fichiers...", len(pdf_urls))
-    docs, errors = [], []
-    pdf_urls = set(list(sorted(pdf_urls))[:MAX_PDFS])
-    for i, url in enumerate(sorted(pdf_urls), 1):
-        log.info("PDF [%d/%d] : %s", i, len(pdf_urls), url)
+
+    remaining = sorted(pdf_urls)[:MAX_PDFS]
+    log.info("PDFs a indexer : %d nouveaux + %d deja en cache", len(remaining), len(docs))
+    errors = []
+
+    for i, url in enumerate(remaining, 1):
+        log.info("PDF [%d/%d] : %s", i + len(already_done), len(remaining) + len(already_done), url)
         d = fetch_pdf(url)
         if d:
             docs.append(d)
         else:
             errors.append(url)
+        if i % 5 == 0:
+            PDF_INDEX_FILE.write_text(json.dumps(docs, ensure_ascii=False, indent=2), encoding="utf-8")
+            log.info("Sauvegarde incrementale : %d PDFs", len(docs))
         time.sleep(0.5)
-    log.info("PDFs : %d OK / %d erreurs / %d total", len(docs), len(errors), len(pdf_urls))
+
     PDF_INDEX_FILE.write_text(json.dumps(docs, ensure_ascii=False, indent=2), encoding="utf-8")
+    log.info("PDFs : %d OK / %d erreurs", len(docs), len(errors))
     return {d["url"]: d for d in docs}
 
 def fit():
@@ -360,24 +366,15 @@ def build(force=False):
             log.info("Index from cache")
             cached = {d["url"]: d for d in json.loads(INDEX_FILE.read_text(encoding="utf-8"))}
             pdf_cached = {}
-            if PDF_INDEX_FILE.exists():
+            if PDF_INDEX_FILE.exists() and PDF_INDEX_FILE.stat().st_size > 10:
                 age_pdf = time.time() - PDF_INDEX_FILE.stat().st_mtime
                 if age_pdf < INDEX_TTL:
                     pdf_cached = {d["url"]: d for d in json.loads(PDF_INDEX_FILE.read_text(encoding="utf-8"))}
-                else:
-                    log.info("Cache PDF expire, re-indexation PDFs...")
-                    pdf_urls_c = discover_pdf_urls(cached)
-                    pdf_urls_c |= discover_pdf_urls_selenium(cached)
-                    pdf_cached = crawl_pdfs_list(pdf_urls_c)
-            else:
-                log.info("Pas de cache PDF, indexation initiale (Selenium + HTML)...")
-                pdf_urls_c = discover_pdf_urls(cached)
-                pdf_urls_c |= discover_pdf_urls_selenium(cached)
-                pdf_cached = crawl_pdfs_list(pdf_urls_c)
-            _index = {**kn, **cached, **pdf_cached}
-            fit()
-            log.info("Cache : %d pages + %d PDFs", len(cached), len(pdf_cached))
-            return
+                    _index = {**kn, **cached, **pdf_cached}
+                    fit()
+                    log.info("Cache OK : %d pages + %d PDFs", len(cached), len(pdf_cached))
+                    return
+            log.info("Cache PDF absent/expire : re-crawl pour decouverte PDFs...")
 
     log.info("Crawl recursif complet lambersart.fr...")
     visited = set()
@@ -399,6 +396,9 @@ def build(force=False):
             continue
         d = fetch(url)
         time.sleep(0.25)
+        for pu in pdf_re.findall(d.get("raw_html", "")):
+            if "lambersart.fr" in pu:
+                pdf_urls.add(pu)
         if d.get("text"):
             d.pop("raw_html", None)
             docs.append(d)
@@ -406,17 +406,13 @@ def build(force=False):
         for link in d.get("links", []):
             if link not in visited:
                 queue.append(link)
-        for pu in pdf_re.findall(d.get("raw_html", "")):
-            if "lambersart.fr" in pu:
-                pdf_urls.add(pu)
 
     crawled = {d["url"]: d for d in docs}
     INDEX_FILE.write_text(json.dumps(docs, ensure_ascii=False, indent=2), encoding="utf-8")
     log.info("Crawl HTML : %d pages", len(docs))
 
-    pdf_urls_from_pages = discover_pdf_urls(crawled)
-    pdf_urls_selenium   = discover_pdf_urls_selenium(crawled)
-    all_pdf_urls = pdf_urls | pdf_urls_from_pages | pdf_urls_selenium
+    pdf_urls_selenium = discover_pdf_urls_selenium(crawled)
+    all_pdf_urls = pdf_urls | pdf_urls_selenium
     log.info("Total PDFs a indexer : %d", len(all_pdf_urls))
 
     pdf_idx = crawl_pdfs_list(all_pdf_urls)
