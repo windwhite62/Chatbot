@@ -38,10 +38,10 @@ ADMIN_TOKEN     = os.environ.get("ADMIN_TOKEN", "changeme")
 INDEX_FILE      = Path("lambersart_index.json")
 PDF_INDEX_FILE  = Path("lambersart_pdf_index.json")
 KNOWLEDGE_FILE  = Path("knowledge.json")
-INDEX_TTL       = 3600 * 12
-MAX_PAGES       = 150   # limite RAM Render 512MB
-MAX_PDFS        = 50    # limite RAM Render 512MB
-MAX_PDF_PAGES   = 8     # limite RAM Render 512MB
+INDEX_TTL       = 3600 * 2   # refresh auto toutes les 2h
+MAX_PAGES       = 999999  # illimite
+MAX_PDFS        = 999999  # illimite
+MAX_PDF_PAGES   = 999999  # illimite
 MAX_HISTORY     = 10
 
 KNOWLEDGE = (

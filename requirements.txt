@@ -8,3 +8,4 @@ scikit-learn>=1.4
 numpy>=1.26
 gunicorn>=21.0
 pdfplumber>=0.10
+urllib3>=2.0
